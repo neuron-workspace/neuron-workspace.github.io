@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Resolve common development, packaging, signing, audit, and GitHub Pages problems." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Troubleshooting — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Troubleshooting</h1>
+        <p class="lede">Resolve common development, packaging, signing, audit, and GitHub Pages problems.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#electron-opens-before-vite-is-ready">Electron opens before Vite is ready</a></li><li><a href="#port-5173-is-already-in-use">Port 5173 is already in use</a></li><li><a href="#installed-app-cannot-find-the-demo-repository-or-icon">Installed app cannot find the demo repository or icon</a></li><li><a href="#windows-or-macos-blocks-a-downloaded-build">Windows or macOS blocks a downloaded build</a></li><li><a href="#packaging-cannot-download-electron">Packaging cannot download Electron</a></li><li><a href="#npm-audit-reports-electron-advisories">npm audit reports Electron advisories</a></li><li><a href="#github-pages-returns-404">GitHub Pages returns 404</a></li></ul></details><h2 id="electron-opens-before-vite-is-ready"><a class="heading-anchor" href="#electron-opens-before-vite-is-ready">Electron opens before Vite is ready</a></h2>
+<p>Use <code>npm run dev</code>, not the individual Electron command. The launcher waits for port 5173 and <code>dist/main/main.js</code>. If it times out, inspect the renderer and main-process output earlier in the terminal.</p>
+<h2 id="port-5173-is-already-in-use"><a class="heading-anchor" href="#port-5173-is-already-in-use">Port 5173 is already in use</a></h2>
+<p>Stop the older Vite process, then rerun <code>npm run dev</code>. The Vite configuration uses a strict port so Electron never connects to an unrelated server.</p>
+<h2 id="installed-app-cannot-find-the-demo-repository-or-icon"><a class="heading-anchor" href="#installed-app-cannot-find-the-demo-repository-or-icon">Installed app cannot find the demo repository or icon</a></h2>
+<p>Run a fresh <code>npm run dist:dir</code>. Packaged resources are copied through Electron Builder and resolved from <code>process.resourcesPath</code>; stale unpacked builds may predate that configuration.</p>
+<h2 id="windows-or-macos-blocks-a-downloaded-build"><a class="heading-anchor" href="#windows-or-macos-blocks-a-downloaded-build">Windows or macOS blocks a downloaded build</a></h2>
+<p>Current public artifacts are unsigned. Do not disable system security globally. Verify that the artifact came from the expected GitHub Release and use the operating system's per-application review flow. Maintainers should configure signing before promoting releases broadly.</p>
+<h2 id="packaging-cannot-download-electron"><a class="heading-anchor" href="#packaging-cannot-download-electron">Packaging cannot download Electron</a></h2>
+<p>Electron Builder downloads platform runtime files on first use. Check network, proxy, firewall, and GitHub access. CI runners normally perform this download automatically.</p>
+<h2 id="npm-audit-reports-electron-advisories"><a class="heading-anchor" href="#npm-audit-reports-electron-advisories"><code>npm audit</code> reports Electron advisories</a></h2>
+<p>Update Electron to a patched supported release, rebuild, and test the desktop application. Do not use <code>npm audit fix --force</code> blindly because Electron major upgrades can change runtime behavior.</p>
+<h2 id="github-pages-returns-404"><a class="heading-anchor" href="#github-pages-returns-404">GitHub Pages returns 404</a></h2>
+<p>Choose <strong>GitHub Actions</strong> as the Pages source and run the <code>Deploy download page</code> workflow. Pages hosts the website only; installers appear after a version tag successfully completes the release workflow.</p>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

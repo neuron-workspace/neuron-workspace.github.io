@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Study the custom-protocol transport, route model, authorization boundary, migration, and verification plan." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Neuron view transport and API decision — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Neuron view transport and API decision</h1>
+        <p class="lede">Study the custom-protocol transport, route model, authorization boundary, migration, and verification plan.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#why-c">Why C</a></li><li><a href="#1-current-state">1. Current state</a></li><li><a href="#2-electron-42-protocol-findings">2. Electron 42 protocol findings</a></li><li><a href="#3-htmx-compatibility-plan-and-verdict">3. HTMX compatibility plan and verdict</a></li><li><a href="#4-target-api-and-route-table">4. Target API and route table</a></li><li><a href="#5-authoring-model">5. Authoring model</a></li><li><a href="#6-session-and-authorization-model">6. Session and authorization model</a></li><li><a href="#7-preserved-security-behavior">7. Preserved security behavior</a></li><li><a href="#8-request-and-response-semantics">8. Request and response semantics</a></li><li><a href="#9-naming">9. Naming</a></li><li><a href="#10-implementation-and-migration-plan">10. Implementation and migration plan</a></li><li><a href="#11-test-plan-and-required-trace">11. Test plan and required trace</a></li><li><a href="#12-risks-rollback-and-limitations">12. Risks, rollback, and limitations</a></li><li><a href="#verification-status-and-open-facts">Verification status and open facts</a></li></ul></details><p><strong>Status:</strong> Decision record for T-008<br />
+<strong>Target:</strong> Electron <code>42.4.1</code>, htmx <code>2.0.10</code><br />
+<strong>Decision:</strong> <strong>C — hybrid.</strong> Ship <code>neuron://</code> as the production transport,
+retain the loopback adapter only behind a development-only flag, and put both
+behind one transport-neutral dispatcher.</p>
+<p>This is a migration decision, not authorization to implement it. The protocol
+must not become the shipping default until the Electron end-to-end gate in
+section 11 passes every verb, header, status, isolation, and CSP case. If that
+gate exposes any loss of normal XMLHttpRequest/fetch semantics that cannot be
+fixed without <code>bypassCSP</code>, disabling web security, putting a secret in authored
+content, or maintaining a second dispatcher, the decision falls back to
+<strong>B — loopback only</strong>. That fallback is a successful outcome, not a reason to
+weaken the existing platform.</p>
+<h2 id="why-c"><a class="heading-anchor" href="#why-c">Why C</a></h2>
+<p>Three findings drive the decision:</p>
+<ol>
+<li>Electron 42's documented protocol API is capable in principle. A standard,
+secure scheme with Fetch support resolves relative URLs, sends a web-standard
+<code>Request</code> (including method, headers, and body) to <code>protocol.handle</code>, and
+accepts a web-standard <code>Response</code>. There is no documentation-level blocker
+for htmx's GET/POST/PUT request model.</li>
+<li>A handler is registered to an Electron <code>Session</code>, not globally across every
+partition. Neuron already gives each view an isolated in-memory partition.
+A partition-specific handler can therefore be the primary proof that a
+request came from the view to which that handler is bound, while the
+dispatcher still checks the session id on every request.</li>
+<li>The existing implementation's strongest controls are reusable, but they are
+not yet separated from HTTP. <code>src/main/htmx/server.ts</code> combines an
+<code>http.Server</code>, cookie and Host/Origin authentication, route matching,
+validation, filesystem/note operations, presentation, and response writing.
+Extracting one dispatcher first is mandatory. A direct protocol rewrite
+would create two security implementations and is rejected.</li>
+</ol>
+<p>Option A is not selected because keeping a development-only loopback adapter
+preserves cheap Node integration tests and provides an immediate rollback
+transport while the protocol path matures. The loopback adapter must be
+impossible to enable in a production package. Option B is not selected now
+because Electron 42 documents the request primitives htmx needs and the protocol
+removes the TCP listener, Host-header, DNS-rebinding, and local-process attack
+surface. B remains the explicit fail-closed result if the browser gate fails.</p>
+<h2 id="1-current-state"><a class="heading-anchor" href="#1-current-state">1. Current state</a></h2>
+<h3 id="file-by-file-transport-boundary"><a class="heading-anchor" href="#file-by-file-transport-boundary">File-by-file transport boundary</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>Transport-specific today</th>
+<th>Reusable application/security logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/main/htmx/index.ts</code></td>
+<td>Lazy loopback lifecycle, <code>serverOrigin</code>, <code>htmxJsPath</code>, document URL containing a boot token, and the cookie-oriented <code>SessionManager</code> setup.</td>
+<td>View recognition, <code>.neuron</code> scaffold, manifest discovery/validation, manifest-hash approval, effective grants, path-policy compilation, workspace-switch revocation, and IPC lifecycle shape. These need extraction from module globals but not redesign.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/server.ts</code></td>
+<td><code>http.Server</code>; <code>IncomingMessage</code>/<code>ServerResponse</code>; Host, Origin, and cookie parsing; stream body collection; URL base; <code>writeHead</code>; HTTP route matching; <code>Set-Cookie</code>.</td>
+<td>Resource ceilings, rate limiting call, capability checks, path-policy checks, body schemas, directory walking, variables, search, notes/tags, fragment rendering, MIME choices, optimistic hashes, atomic writes, JSON/HTML representation choice, and safe errors. These are reusable only after they stop accepting or writing Node HTTP objects.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/sessions.ts</code></td>
+<td>One-time boot token, cookie token, cookie parsing contract, constant-time token comparison.</td>
+<td>Session id, TTL, capability and compiled-policy storage, revocation, lookup, and token-bucket rate limiting. The target record needs more identity and binding fields.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/html.ts</code></td>
+<td><code>wrapDocument</code> builds HTTP paths (<code>/views/&lt;sid&gt;/...</code>).</td>
+<td>Escaping, limited interpolation, document structure, safe error fragments, and fragment presenters. URL generation must be injected rather than constructed here.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/theme.ts</code></td>
+<td>None except that <code>server.ts</code> currently serves its string.</td>
+<td>The design-system CSS is an app-owned runtime asset.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/manifest.ts</code></td>
+<td>None.</td>
+<td>Strict manifest/variable schemas, known capabilities, unknown-key rejection, effective grants. New semantic note capabilities would be a versioned schema addition, not a transport concern.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/pathPolicy.ts</code></td>
+<td>None.</td>
+<td>Workspace-relative normalization, glob policy, canonical containment, and symlink/junction escape checks. This remains the single path gate.</td>
+</tr>
+<tr>
+<td><code>src/main/htmx/appPaths.ts</code></td>
+<td>None.</td>
+<td><code>.nhtml</code>, <code>.ndash</code>, and <code>neuron.app</code> recognition; manifest location; script-policy selection; display names.</td>
+</tr>
+<tr>
+<td><code>src/main/main.ts</code></td>
+<td><code>getViewServerOrigin()</code>, string-prefix origin checks, HTTP dev origin assumptions, and the loopback-oriented navigation pin.</td>
+<td><code>web-contents-created</code>, <code>will-attach-webview</code>, no preload/Node, context isolation, sandbox, popup denial, permission denial, and session revocation hooks. <code>WORKSPACE_FILE</code> already recognizes <code>.nhtml</code>, <code>.ndash</code>, <code>neuron.app</code>/manifest files, and <code>.neuron</code> JSON/HTML/CSS, so its reload notifications are transport-neutral. The guards must change from “same loopback origin” to an exact route allowlist tied to the registered view.</td>
+</tr>
+<tr>
+<td><code>src/main/preload.ts</code></td>
+<td>None beyond returning a transport-produced URL/partition through <code>htmxViews.open</code>.</td>
+<td>The narrow open/approve/close/reset IPC surface. No view preload or <code>ipcRenderer</code> bridge is introduced.</td>
+</tr>
+<tr>
+<td><code>src/renderer/surfaces/HtmxViewSurface.tsx</code></td>
+<td>Comments and the URL received from main mention loopback.</td>
+<td>Approval UI, isolated <code>&lt;webview&gt;</code>, per-view partition, crash isolation, close/revoke, and reload-on-save. Opening a fresh session on relevant file changes is transport-neutral.</td>
+</tr>
+<tr>
+<td><code>tools/htmx-views.test.mjs</code></td>
+<td>Live <code>http</code> server, cookies, Host spoofing, raw TCP port, HTTP fetch helper, HTTP document URL.</td>
+<td>Path/manifest/session/escaping tests and most route behavior assertions. These become dispatcher contract tests; separate adapter tests cover HTTP and protocol.</td>
+</tr>
+<tr>
+<td><code>docs/htmx-views.md</code>, <code>docs/custom-views.md</code>, <a href="https://github.com/neuron-workspace/neuron-skills"><code>neuron-skills</code></a></td>
+<td>Loopback, cookie, and root-absolute <code>/api/v1/...</code> authoring guidance.</td>
+<td>Threat model, capability model, view formats, semantic API concepts, and local-first authoring model.</td>
+</tr>
+<tr>
+<td>Demo <code>.nhtml</code>, <code>.ndash</code>, <code>neuron.app</code>, templates</td>
+<td>Root-absolute <code>/api/v1/...</code> and <code>fetch('/api/v1' + p)</code>.</td>
+<td>The three required view kinds and their real read/write scenarios. They are the migration fixtures.</td>
+</tr>
+<tr>
+<td><code>tools/copy-htmx.mjs</code>, <code>package.json</code></td>
+<td>The runtime is copied beside the main bundle so the HTTP server can read it.</td>
+<td>Offline packaging remains correct. <code>dist/**/*</code> places the copied runtime in the ASAR; <code>asarUnpack</code> is intentionally limited to <code>node-pty</code> and <code>sql.js</code>, and <code>extraResources</code> covers examples/icon rather than htmx. The target asset registry points to the known packaged runtime; no URL becomes a filesystem path and no new unpack rule is needed.</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="what-extraction-actually-costs"><a class="heading-anchor" href="#what-extraction-actually-costs">What extraction actually costs</a></h3>
+<p>This is not a thin replacement of <code>server.listen()</code> with <code>protocol.handle()</code>.
+Most of <code>server.ts</code> must be separated along these boundaries:</p>
+<pre><code class="language-text">HTTP IncomingMessage ─┐
+                      ├─&gt; TransportRequest ─&gt; dispatcher ─&gt; service ─&gt; TransportResponse
+Electron Request ─────┘                                      │
+                                                            ├─ directoryService
+                                                            ├─ fileContentService
+                                                            ├─ noteService
+                                                            ├─ fragmentService
+                                                            └─ runtimeAssetService
+</code></pre>
+<p>The dispatcher owns route and method matching, session/capability enforcement,
+schema validation, rate/size limits, representation selection, and safe error
+mapping exactly once. Adapters only normalize a request, supply a trusted
+transport binding, and serialize the returned response. Services do not know
+about HTTP, Electron, htmx, cookies, or <code>Response</code>.</p>
+<p>The existing <code>apiNotes</code> and note search helpers currently scan files directly,
+and file mutation writes directly with <code>fs</code>. The target <code>/notes</code> mutations must
+use Neuron's editor-aware note service so dirty state, autosave, indexing,
+conflict handling, and metadata stay coherent. Directory metadata and generic
+file content remain separate services. That service boundary is more work than
+the protocol adapter itself and must not be hidden inside a transport change.</p>
+<h2 id="2-electron-42-protocol-findings"><a class="heading-anchor" href="#2-electron-42-protocol-findings">2. Electron 42 protocol findings</a></h2>
+<p>Primary versioned sources:</p>
+<ul>
+<li>Electron <a href="https://github.com/electron/electron/blob/v42.4.1/docs/api/protocol.md"><code>v42.4.1</code> protocol API</a></li>
+<li>Electron <a href="https://github.com/electron/electron/blob/v42.4.1/docs/api/structures/custom-scheme.md"><code>v42.4.1</code> <code>CustomScheme</code></a></li>
+<li>Electron <a href="https://github.com/electron/electron/blob/v42.4.1/docs/api/session.md"><code>v42.4.1</code> session API</a></li>
+<li>Electron <a href="https://github.com/electron/electron/blob/v42.4.1/docs/api/web-contents.md"><code>v42.4.1</code> web contents API</a></li>
+<li>Electron <a href="https://github.com/electron/electron/blob/v42.4.1/docs/api/web-request.md"><code>v42.4.1</code> web request API</a></li>
+<li>Electron <a href="https://github.com/electron/electron/blob/v42.4.1/docs/api/webview-tag.md"><code>v42.4.1</code> webview API</a></li>
+<li>Official <a href="https://releases.electronjs.org/release/v42.4.1">Electron 42.4.1 release record</a></li>
+</ul>
+<h3 id="registration-and-partitions"><a class="heading-anchor" href="#registration-and-partitions">Registration and partitions</a></h3>
+<p><code>protocol.registerSchemesAsPrivileged(...)</code> must run synchronously before the
+app <code>ready</code> event and can be called only once. It registers the scheme's
+privilege classification for the application. <code>protocol.handle(...)</code> normally
+runs after <code>ready</code>.</p>
+<p>Handlers are different: Electron documents that a protocol handler belongs to
+a specific <code>Session</code>. Registering on the top-level <code>protocol</code> object covers the
+default session only. A webview with a custom partition uses a different
+session and needs <code>session.fromPartition(partition).protocol.handle(...)</code>.</p>
+<p>Therefore the answer is <strong>both, for different purposes</strong>:</p>
+<ul>
+<li>Register the <code>neuron</code> scheme and its privileges once, globally, before
+<code>app.whenReady()</code>.</li>
+<li>Install the <code>neuron</code> handler on every view's unique in-memory <code>Session</code>
+before the webview attaches. Do not install it on the default session or the
+browser partition because those surfaces do not need view access.</li>
+</ul>
+<p>The same rule applies to a <code>persist:</code> partition, but Neuron should keep
+non-persistent <code>view-&lt;opaque-id&gt;</code> partitions. Electron documents that partitions
+without <code>persist:</code> are in memory and that pages sharing a partition share the
+same session. Neuron must prevent partition reuse, not merely rely on an opaque
+name.</p>
+<h3 id="required-privilege-set"><a class="heading-anchor" href="#required-privilege-set">Required privilege set</a></h3>
+<pre><code class="language-ts">protocol.registerSchemesAsPrivileged([{
+  scheme: 'neuron',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: false,
+    bypassCSP: false,
+    allowServiceWorkers: false,
+    stream: false,
+    codeCache: false,
+    allowExtensions: false,
+  },
+}])
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Privilege</th>
+<th>Electron 42 finding</th>
+<th>Neuron decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>standard</code></td>
+<td>Electron says this enables generic URI parsing and correct relative/absolute resource resolution. Non-standard schemes cannot resolve relative resources; web storage APIs are disabled for non-standard schemes.</td>
+<td><strong>True.</strong> Required for <code>./api/...</code>, CSS, scripts, and assets. This does not authorize the FileSystem API; Neuron exposes no file handles and its handler has an explicit route table.</td>
+</tr>
+<tr>
+<td><code>secure</code></td>
+<td>Listed by Electron as an opt-in scheme privilege.</td>
+<td><strong>True.</strong> Local app content should be treated as secure. The exact set of Chromium secure-context features it enables is not enumerated in Electron's page and is not relied on for authorization.</td>
+</tr>
+<tr>
+<td><code>supportFetchAPI</code></td>
+<td>Listed as enabling Fetch API support; <code>protocol.handle</code> receives a global <code>Request</code>.</td>
+<td><strong>True.</strong> Required by <code>.ndash</code> <code>fetch</code> and by Chromium request plumbing used by htmx/XHR.</td>
+</tr>
+<tr>
+<td><code>stream</code></td>
+<td>Electron says stream protocols should enable it for audio/video streaming behavior.</td>
+<td><strong>False.</strong> Current documents, CSS, JS, JSON, fragments, and bounded files are finite bodies. Revisit only with a separately tested media route.</td>
+</tr>
+<tr>
+<td><code>bypassCSP</code></td>
+<td>Allows resources to bypass CSP.</td>
+<td><strong>False, non-negotiable.</strong> If protocol mode needs it, escalate and select B.</td>
+</tr>
+<tr>
+<td><code>allowServiceWorkers</code></td>
+<td>Allows ServiceWorker registration.</td>
+<td><strong>False.</strong> Offline/network interception is not part of the view platform and would create another persistent execution/control plane.</td>
+</tr>
+<tr>
+<td><code>corsEnabled</code></td>
+<td>Listed as the CORS privilege; default false.</td>
+<td><strong>False.</strong> All authored document/API/runtime routes are deliberately same-origin under <code>neuron://view</code>. Remote and cross-origin requests must remain blocked. Exact Chromium behavior with custom-scheme XHR is an E2E gate below.</td>
+</tr>
+<tr>
+<td><code>codeCache</code></td>
+<td>V8 code cache; only works with <code>standard</code>.</td>
+<td><strong>False.</strong> Not needed for the small bundled runtime.</td>
+</tr>
+<tr>
+<td><code>allowExtensions</code></td>
+<td>Allows Chrome extensions on the scheme.</td>
+<td><strong>False.</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>protocol.handle</code> receives a web-standard <code>Request</code> and returns a web-standard
+<code>Response</code>. Electron's versioned example explicitly forwards <code>req.method</code>,
+<code>req.headers</code>, and <code>req.body</code>, and constructs responses with status, headers,
+and body. Deprecated <code>register*Protocol</code> and <code>intercept*Protocol</code> APIs are not
+part of this design.</p>
+<h3 id="sandboxed-webview-behavior"><a class="heading-anchor" href="#sandboxed-webview-behavior">Sandboxed webview behavior</a></h3>
+<p>The protocol is available inside the sandboxed webview because it is installed
+on that webview partition's <code>Session</code>; sandboxing does not make the default
+session's handler cross partitions. The view remains a separate guest
+<code>WebContents</code> with no preload, Node integration off, context isolation on, and
+the Chromium sandbox on. Electron warns that <code>&lt;webview&gt;</code> itself has stability
+costs and recommends considering alternatives. Replacing it is outside T-008;
+the migration preserves the current isolation boundary.</p>
+<p><code>protocol.handle</code>'s documented <code>Request</code> does not expose a <code>webContents</code> id.
+Electron's session-scoped <code>webRequest</code> details can expose optional
+<code>webContentsId</code>, <code>webContents</code>, and frame fields, but whether all custom-scheme
+resource/XHR requests populate those fields in Electron 42.4.1 is <strong>unverified
+and must be proven by E2E</strong>. Partition binding is mandatory; webContents binding
+is an additional check wherever Electron supplies it.</p>
+<h2 id="3-htmx-compatibility-plan-and-verdict"><a class="heading-anchor" href="#3-htmx-compatibility-plan-and-verdict">3. HTMX compatibility plan and verdict</a></h2>
+<p>The htmx 2 documentation states that htmx uses AJAX requests, sends
+<code>HX-Request: true</code>, defaults <code>selfRequestsOnly</code> to true, uses URL parameters for
+GET and DELETE, and normally uses form encoding for other form requests. It
+also documents configurable status handling and that non-success responses do
+not swap by default. Sources:</p>
+<ul>
+<li><a href="https://htmx.org/docs/">htmx 2 documentation</a></li>
+<li><a href="https://htmx.org/attributes/hx-get/"><code>hx-get</code></a></li>
+<li><a href="https://htmx.org/attributes/hx-encoding/"><code>hx-encoding</code></a></li>
+<li><a href="https://htmx.org/reference/">request/response header reference</a></li>
+<li><a href="https://htmx.org/events/">htmx events and non-200 behavior</a></li>
+<li><a href="https://htmx.org/headers/hx-redirect/"><code>HX-Redirect</code></a></li>
+</ul>
+<p>No browser scenario was executed in this worktree. The verdicts below distinguish
+what the versioned Electron API establishes from what must still be measured.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What must hold</th>
+<th>Documentation verdict</th>
+<th>Required Electron test</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hx-get</code></td>
+<td>XHR reaches the handler as GET; query parameters and <code>HX-Request</code> survive; HTML response swaps.</td>
+<td><strong>Supported in principle.</strong> Standard URL resolution plus Request/Response covers it.</td>
+<td>Click and load-trigger cases using <code>./api/v1/context</code> and search parameters; assert handler input and final DOM.</td>
+</tr>
+<tr>
+<td><code>hx-post</code></td>
+<td>POST method, urlencoded body, content type, and htmx headers survive.</td>
+<td><strong>Supported in principle; runtime proof required.</strong> Electron explicitly exposes method/headers/body.</td>
+<td>Submit inputs containing spaces, Unicode, duplicate names, empty values, and encoded delimiters; verify bytes and parsed schema.</td>
+</tr>
+<tr>
+<td><code>hx-put</code></td>
+<td>PUT method and body survive without method coercion.</td>
+<td><strong>Supported in principle; runtime proof required.</strong></td>
+<td>Update a writable variable and a file; assert PUT at dispatcher and 200 fragment/JSON.</td>
+</tr>
+<tr>
+<td>Form submission</td>
+<td>htmx-enhanced forms preserve normal successful controls and encoding; native same-origin forms do not escape the route allowlist.</td>
+<td><strong>HTMX form supported in principle. Native custom-scheme POST unverified.</strong></td>
+<td>Test htmx GET/POST/PUT forms and a native POST form. Native forms are not a required authoring primitive; block or document them if Chromium does not preserve semantics.</td>
+</tr>
+<tr>
+<td>Query strings</td>
+<td><code>URL.searchParams</code> preserves repeated keys, empty values, Unicode, and encoded characters without double decoding.</td>
+<td><strong>Supported by standard URL parsing; normalization rules still need tests.</strong></td>
+<td>Table-driven parser and Electron requests, including <code>%2e%2e</code>, <code>%252e%252e</code>, <code>%2f</code>, <code>+</code>, and repeated keys.</td>
+</tr>
+<tr>
+<td>Request bodies</td>
+<td>Bounded bytes remain readable once; JSON and urlencoded parsing are explicit; unsupported MIME returns 415.</td>
+<td><strong>Supported in principle via <code>Request.body</code>/<code>arrayBuffer()</code>.</strong></td>
+<td>Empty, 1-byte, at-limit, over-limit, malformed JSON, urlencoded, and multipart rejection.</td>
+</tr>
+<tr>
+<td><code>HX-Request</code></td>
+<td>Header arrives exactly as <code>true</code> and selects HTML presentation.</td>
+<td><strong>Supported in principle via <code>Request.headers</code>.</strong></td>
+<td>Compare same route with and without the header; assert HTML vs JSON and <code>Vary: HX-Request</code>.</td>
+</tr>
+<tr>
+<td>Response headers</td>
+<td><code>Content-Type</code>, CSP, <code>HX-*</code>, <code>Location</code>, <code>Cache-Control</code>, and security headers reach Chromium.</td>
+<td><strong>Supported in principle via <code>Response</code>; individual Chromium behavior unverified.</strong></td>
+<td>Observe handler output and renderer-visible headers. Assert CSP enforcement, MIME/nosniff, and htmx response headers.</td>
+</tr>
+<tr>
+<td>403/404/409/429</td>
+<td>Status is preserved, safe body is readable, correct htmx error event fires, and the page does not treat it as success.</td>
+<td><strong>Supported as a <code>Response</code> status. htmx does not swap 4xx by default.</strong></td>
+<td>Assert status/event/body for each. Inject a trusted htmx meta configuration or external runtime listener only if product UX requires swapping error fragments; never turn an error into 200 merely to force a swap.</td>
+</tr>
+<tr>
+<td>Redirects</td>
+<td>External, cross-session, and non-route redirects are denied. Internal htmx navigation uses an allowlisted <code>HX-Location</code>/<code>HX-Redirect</code> on 2xx, not an unchecked 3xx.</td>
+<td><strong>Raw Response redirect behavior is unverified and not needed.</strong> htmx documents that response headers are not processed on 3xx.</td>
+<td>Dispatcher rejects redirect intents except exact same-session document routes; navigation guard blocks crafted <code>Location</code>, <code>HX-Location</code>, and <code>HX-Redirect</code> targets.</td>
+</tr>
+<tr>
+<td>Relative URLs</td>
+<td><code>./api/v1/...</code>, <code>./style</code>, <code>./asset/...</code>, and injected runtime URLs resolve inside the current session.</td>
+<td><strong>Documented supported when <code>standard: true</code>.</strong></td>
+<td>Resolve from the real document URL, from swapped fragments, and after history/hash changes.</td>
+</tr>
+<tr>
+<td>Asset loading</td>
+<td>Same-origin script/style/image requests reach the correct route and preserve MIME/CSP.</td>
+<td><strong>Supported in principle.</strong></td>
+<td>Load bundled htmx, Neuron CSS, registered component CSS, allowed view style, and registered workspace asset; reject unknown ids and bad MIME.</td>
+</tr>
+<tr>
+<td>CSS</td>
+<td>Local CSS loads; <code>@import</code>, remote/protocol-relative URLs, and unregistered asset URLs fail.</td>
+<td><strong>Protocol transport neutral; browser CSP behavior must be measured.</strong></td>
+<td>Verify strict CSP, CSS scanner, nested encodings, comments/whitespace, <code>url(data:)</code> policy, and no remote requests.</td>
+</tr>
+<tr>
+<td>Bundled <code>htmx.js</code></td>
+<td>Exact packaged bytes load offline under <code>script-src 'self'</code> with <code>nosniff</code>.</td>
+<td><strong>Supported in principle.</strong></td>
+<td>Packaged-app E2E with network disabled; assert version and no fallback to <code>node_modules</code> or CDN.</td>
+</tr>
+<tr>
+<td>Fragment swaps</td>
+<td>Returned HTML is parsed and swapped; newly inserted htmx attributes are processed; scripts do not execute.</td>
+<td><strong>Normal htmx behavior; transport-independent.</strong></td>
+<td>Load, click, nested fragment, out-of-band attempt, <code>&lt;script&gt;</code> attempt, and escaped untrusted values.</td>
+</tr>
+<tr>
+<td>Error fragments</td>
+<td><code>HX-Request</code> gets safe HTML and non-htmx gets structured JSON; no stack/path/token leaks.</td>
+<td><strong>Dispatcher behavior, not a protocol limitation.</strong> Default htmx 2 does not swap 4xx.</td>
+<td>Assert safe bodies and explicit error target/event UX for all required statuses.</td>
+</tr>
+<tr>
+<td>Reload-on-save</td>
+<td>Old session is revoked; a fresh partition/handler/session re-reads source, manifest, and grants; variables do not trigger destructive reloads.</td>
+<td><strong>Transport-independent.</strong></td>
+<td>Modify <code>.nhtml</code>, <code>.ndash</code>, <code>neuron.app</code>, manifest, fragment, style, and config; assert old URL fails and new DOM loads.</td>
+</tr>
+<tr>
+<td><code>.ndash</code> fetch</td>
+<td>Same-origin GET/PUT with JSON works under the narrowed scripting CSP; remote fetch fails.</td>
+<td><strong>Supported in principle via <code>supportFetchAPI</code>.</strong></td>
+<td>Run the existing dashboard, update the variable, and attempt HTTP/HTTPS, websocket, image, beacon, and navigation exfiltration.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>HTMX verdict:</strong> <strong>provisionally compatible feature by feature; no documented
+semantic blocker.</strong> Migration may proceed only as C's gated phases. A failure
+of method/body/header/status behavior, same-origin enforcement, or strict CSP in
+the actual Electron webview ends the protocol recommendation and selects B.</p>
+<h2 id="4-target-api-and-route-table"><a class="heading-anchor" href="#4-target-api-and-route-table">4. Target API and route table</a></h2>
+<h3 id="url-shape"><a class="heading-anchor" href="#url-shape">URL shape</a></h3>
+<p>Use one document origin so <code>'self'</code> remains meaningful:</p>
+<pre><code class="language-text">neuron://view/&lt;sid&gt;/document
+neuron://view/&lt;sid&gt;/runtime/htmx.js
+neuron://view/&lt;sid&gt;/runtime/neuron.css
+neuron://view/&lt;sid&gt;/runtime/components/&lt;id&gt;.css
+neuron://view/&lt;sid&gt;/style
+neuron://view/&lt;sid&gt;/asset/&lt;assetId&gt;
+
+neuron://view/&lt;sid&gt;/api/v1/...
+</code></pre>
+<p>This deliberately adapts the candidate <code>neuron://runtime/...</code> host. A separate
+<code>runtime</code> host is a separate origin and would force broader CSP/CORS rules. The
+session-scoped runtime aliases still resolve through an app-owned explicit
+registry and never expose a workspace path.</p>
+<p>All JSON success responses have <code>{ data: ..., meta?: ... }</code>. All JSON errors
+have <code>{ error: { code, message, requestId, details?: safeFields } }</code>. An
+<code>HX-Request: true</code> receives an HTML fragment where the route defines one;
+otherwise it receives JSON. Responses that vary use <code>Vary: HX-Request</code>.</p>
+<p><code>noteId</code> and <code>assetId</code> are opaque ids issued by Neuron. They are not paths.
+Unknown ids are 404. Schemas reject unknown fields.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Canonical path</th>
+<th>Capability</th>
+<th>Request schema</th>
+<th>Success response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/runtime/htmx.js</code></td>
+<td>session only</td>
+<td>No query/body</td>
+<td>Registered <code>htmx-2.0.10</code> bytes, JS MIME</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runtime/neuron.css</code></td>
+<td>session only</td>
+<td>No query/body</td>
+<td>Registered design-system CSS</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/runtime/components/:id.css</code></td>
+<td>session only</td>
+<td><code>id</code> from compile-time registry</td>
+<td>Registered component CSS</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/document</code></td>
+<td>session only</td>
+<td>No body; optional safe theme selection comes from session, not query</td>
+<td>Full HTML with strict CSP</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/style</code></td>
+<td>session + manifest/path policy</td>
+<td>No body</td>
+<td>Auto style selected from the view identity; CSS MIME</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/asset/:assetId</code></td>
+<td>route-specific read grant + manifest asset declaration</td>
+<td>Opaque id only</td>
+<td>Bounded bytes with registry-derived MIME</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/context</code></td>
+<td>session only</td>
+<td>No body</td>
+<td>JSON context; htmx gets a context summary fragment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/variables</code></td>
+<td><code>variables.read</code></td>
+<td>Optional <code>keys</code> list, bounded</td>
+<td>Definitions/values; htmx definition list</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/variables/:key</code></td>
+<td><code>variables.read</code></td>
+<td>Valid variable key</td>
+<td>Variable definition/value; htmx value fragment</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/variables/:key</code></td>
+<td><code>variables.write</code> and variable <code>writable</code></td>
+<td>JSON or urlencoded <code>{ value }</code></td>
+<td>Updated value; htmx confirmation fragment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/fs/tree</code></td>
+<td><code>workspace.directories.list</code></td>
+<td><code>path</code> workspace-relative directory, <code>depth</code> integer 0..8, <code>limit</code> 1..500</td>
+<td>Bounded directory tree metadata; htmx nested list</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/fs/list</code></td>
+<td><code>workspace.directories.list</code></td>
+<td><code>path</code>, optional validated <code>glob</code>, <code>limit</code> 1..500, opaque <code>cursor</code></td>
+<td>Direct children metadata; htmx list</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/fs/file-count</code></td>
+<td><code>workspace.directories.list</code></td>
+<td><code>path</code>, optional validated <code>glob</code>, bounded walk</td>
+<td><code>{ count, truncated }</code>; htmx metric</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/fs/stat</code></td>
+<td><code>workspace.directories.list</code></td>
+<td><code>path</code></td>
+<td>Safe metadata only: kind, size, modified, opaque id; never absolute path</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/files/content</code></td>
+<td><code>workspace.files.read</code></td>
+<td><code>path</code></td>
+<td><code>{ path, content, hash, modified }</code>; htmx escaped/preformatted fragment only when explicitly requested</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/files/create</code></td>
+<td><code>workspace.files.create</code></td>
+<td><code>{ path, content, expectedMissing: true }</code></td>
+<td>201 <code>{ path, hash }</code>; htmx created fragment</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/files/update</code></td>
+<td><code>workspace.files.write</code></td>
+<td><code>{ path, content, baseHash }</code>; <code>baseHash</code> required</td>
+<td><code>{ path, hash }</code>; htmx saved fragment</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/files/delete</code></td>
+<td><code>workspace.files.delete</code></td>
+<td>JSON <code>{ path, baseHash, confirm: true }</code>; no destructive query-string action</td>
+<td><code>{ path, deleted: true }</code>; htmx deleted fragment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/search</code></td>
+<td><code>workspace.search</code></td>
+<td><code>q</code> max 256, optional safe folder/tag filters, <code>limit</code> 1..50</td>
+<td>Search rows; htmx results fragment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/notes</code></td>
+<td><code>notes.read</code></td>
+<td>Optional folder/tag, <code>limit</code> 1..200, opaque cursor</td>
+<td>Note summaries; htmx table/list</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/notes</code></td>
+<td><strong>new</strong> <code>notes.create</code></td>
+<td><code>{ parentPath, title, content, expectedMissing: true }</code></td>
+<td>201 note summary/id; htmx created fragment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/notes/:noteId</code></td>
+<td><code>notes.read</code></td>
+<td>Opaque note id</td>
+<td>Note DTO from <code>noteService</code>; htmx safe note fragment</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/notes/:noteId</code></td>
+<td><strong>new</strong> <code>notes.write</code></td>
+<td><code>{ content, baseRevision }</code>; revision required</td>
+<td>Updated note/revision; htmx saved fragment</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/api/v1/notes/:noteId</code></td>
+<td><strong>new</strong> <code>notes.delete</code></td>
+<td><code>{ baseRevision, confirm: true }</code></td>
+<td>Tombstone/result from <code>noteService</code>; htmx deleted fragment</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/tags</code></td>
+<td><code>tags.read</code></td>
+<td>Optional bounded prefix/count filters</td>
+<td>Tag DTOs; htmx badges</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/fragments/:fragmentId</code></td>
+<td>session; <code>variables.read</code> only if variable interpolation is requested</td>
+<td>Id <code>[A-Za-z0-9_-]{1,64}</code> and bounded scalar params</td>
+<td>Escaped/interpolated HTML fragment; JSON callers get <code>{ html }</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Common errors are 400 <code>invalid_request</code>/<code>invalid_path</code>, 401 <code>session_invalid</code>,
+403 <code>missing_capability</code>/<code>path_not_allowed</code>/<code>binding_mismatch</code>, 404
+<code>not_found</code>, 405 <code>method_not_allowed</code>, 409 <code>conflict</code>/<code>already_exists</code>, 413
+<code>too_large</code>, 415 <code>unsupported_media_type</code>, 422 <code>unsafe_css</code>/<code>invalid_config</code>,
+429 <code>rate_limited</code>, and 500 <code>internal</code>. A 500 never contains an exception.</p>
+<p>The new note capabilities are intentionally distinct. Existing
+<code>workspace.files.write/create/delete</code> grants do not silently gain the power to
+mutate an open note. Manifests that need semantic note mutation must request
+the versioned note capabilities and receive approval. <code>fileContentService</code>
+rejects create/update/delete requests targeting <code>.md</code>, <code>.mdx</code>, or any path
+recognized as a Neuron note and returns a safe 409 directing the caller to the
+semantic <code>/notes</code> route. A caller cannot bypass <code>noteService</code> by choosing the
+generic file-content API.</p>
+<p>There is no <code>/fs/readFile</code>, <code>/fs/writeFile</code>, <code>/fs/readdir</code>, <code>/fs/unlink</code>,
+<code>/fs/call</code>, <code>/execute</code>, <code>/ipc</code>, <code>/command</code>, generic <code>neuron://fs/&lt;path&gt;</code>, or
+<code>neuron://file/&lt;path&gt;</code>.</p>
+<h2 id="5-authoring-model"><a class="heading-anchor" href="#5-authoring-model">5. Authoring model</a></h2>
+<p>Authors write:</p>
+<pre><code class="language-html">&lt;section hx-get=&quot;./api/v1/context&quot; hx-trigger=&quot;load&quot;&gt;Loading…&lt;/section&gt;
+&lt;section hx-get=&quot;./api/v1/fs/file-count?path=Projects&quot; hx-trigger=&quot;load&quot;&gt;…&lt;/section&gt;
+</code></pre>
+<p>They never write <code>neuron://</code>, a session id, a token, or a partition. The served
+document is <code>neuron://view/&lt;sid&gt;/document</code>; standard URL resolution treats
+<code>./api/v1/context</code> as <code>neuron://view/&lt;sid&gt;/api/v1/context</code>. Swapped fragments
+resolve against the unchanged document URL.</p>
+<p>No <code>&lt;base&gt;</code> tag is needed or recommended. Keeping <code>base-uri 'none'</code> prevents an
+authored base from retargeting relative resources. Injecting a base would require
+weakening that directive, ordering Neuron's base ahead of authored markup, and
+testing fragment/history behavior for no gain.</p>
+<p>Existing workspaces use root-absolute <code>/api/v1/...</code>. During migration only, the
+protocol adapter may accept <code>neuron://view/api/v1/...</code> and normalize it to the
+session bound to that partition. This is a non-public compatibility alias; it
+never bypasses the dispatcher and cannot choose a session. New examples,
+templates, docs, and skills use <code>./api/v1/...</code>. The alias is removed only in a
+major release after a workspace audit; Neuron never rewrites user files.</p>
+<p>Injected runtime URLs are generated by the document service. Custom styles use
+<code>./style</code>; manifest-declared assets use <code>./asset/&lt;opaque-id&gt;</code>. Authors cannot
+turn a local path into a URL.</p>
+<h2 id="6-session-and-authorization-model"><a class="heading-anchor" href="#6-session-and-authorization-model">6. Session and authorization model</a></h2>
+<p><code>neuron://</code> is routing, not authentication.</p>
+<pre><code class="language-ts">interface ViewSession {
+  id: string;                         // 256-bit random, opaque
+  workspaceRoot: string;              // internal absolute canonical root
+  entryFile: string;                  // normalized workspace-relative path
+  manifestIdentity: string;            // id or canonical manifest location
+  manifestHash: string;
+  capabilities: ReadonlySet&lt;Capability&gt;;
+  readPolicy: CompiledPathPolicy;
+  writePolicy: CompiledPathPolicy;
+  partition: string;                  // unique in-memory partition
+  webContentsId: number | null;       // bound on attach where obtainable
+  createdAt: number;
+  lastAccessAt: number;
+  expiresAt: number;
+  revokedAt: number | null;
+  revocationReason: string | null;
+  theme: 'light' | 'dark';
+  allowScripts: boolean;
+  rateBucket: RateBucket;
+  assetRegistry: ReadonlyMap&lt;string, RegisteredAsset&gt;;
+}
+</code></pre>
+<p>Every request performs, in order:</p>
+<ol>
+<li>The adapter parses once, rejects credentials, ports, unexpected host/scheme,
+malformed escapes, encoded separators, duplicate structural segments, and
+unsupported methods/content types.</li>
+<li>The adapter supplies a trusted binding: the Electron <code>Session</code>/partition for
+which its handler was installed and, where Electron provides it, the
+requesting webContents/frame id.</li>
+<li>The dispatcher extracts the canonical <code>sid</code>, looks up a live, unexpired,
+non-revoked record, and requires the adapter partition to equal the record.</li>
+<li>If <code>webContentsId</code> is bound and the request exposes an id, it must match.
+A missing id never substitutes for a mismatched one; coverage is measured by
+resource type in E2E.</li>
+<li>The dispatcher matches one method and route, rate-limits, enforces body/work
+ceilings, validates the full schema, checks the capability, then applies the
+compiled path policy and canonical containment before calling a service.</li>
+<li>The response mapper emits only allowlisted headers and safe bodies and
+updates <code>lastAccessAt</code>.</li>
+</ol>
+<p>Opening a view reserves a never-reused partition, creates its session record,
+installs a handler closure on <code>session.fromPartition(partition)</code>, then permits
+exactly one webview attachment whose <code>params.src</code> and partition match that
+record. <code>did-attach-webview</code> binds the guest <code>webContents.id</code>. A second attach,
+another src, partition reuse, or a destroyed/revoked record is denied. Closing,
+workspace switching, manifest/source reload, guest destruction, TTL expiry, or
+permission reset revokes the record and unregisters or fail-closes its handler.</p>
+<h3 id="boot-token-and-cookie-decision"><a class="heading-anchor" href="#boot-token-and-cookie-decision">Boot token and cookie decision</a></h3>
+<p><strong>They do not survive in protocol mode.</strong> The loopback adapter retains its
+one-time boot token and HttpOnly cookie while it exists; the protocol adapter
+does not depend on custom-scheme cookies. Electron's docs say cookies are
+disabled for non-standard schemes but do not promise complete cookie behavior
+for standard custom schemes. Electron also has an open official issue reporting
+custom-protocol cookie behavior even with <code>standard: true</code>
+(<a href="https://github.com/electron/electron/issues/27981">electron/electron#27981</a>).
+Exact Electron 42.4.1 cookie behavior is <strong>unverified</strong>, so cookies are excluded
+from the security proof.</p>
+<p>The protocol proof is:</p>
+<ul>
+<li>A handler exists only on the unique in-memory partition assigned to one view.</li>
+<li>Its closure supplies that partition identity and one expected sid.</li>
+<li>A request for another sid reaches the current partition's handler and fails
+<code>sid</code>/partition binding.</li>
+<li>A copied URL loaded from another view, app window, browser partition, or
+default session has either no handler or a handler bound to a different
+session and fails.</li>
+<li>Main validates <code>src</code> and partition before attach, permits one guest, binds its
+id after attach, and denies popups/navigation.</li>
+<li>User-authored content cannot create an Electron webview, choose a partition,
+access IPC, or install a handler.</li>
+</ul>
+<p>An htmx extension that injects a secret header is rejected as the primary
+design: it would not cover CSS/scripts/images or <code>.ndash</code>'s direct <code>fetch</code>, and
+any JavaScript-visible secret would be readable by the deliberately scripting
+capable dashboard. If Electron E2E cannot prove the partition binding above,
+the permitted fallback is B. A possible defense-in-depth experiment is a
+main-process, partition-scoped <code>webRequest</code> header added only to <code>neuron://view</code>
+requests, never a value stored in HTML or JavaScript; its custom-protocol
+coverage is currently <strong>unverified</strong> and it is not part of the decision.</p>
+<p>No long-lived secret appears in user HTML, <code>.neuron</code>, logs, query strings,
+settings, or URLs. The sid is an opaque routing id and is still checked as if it
+were public.</p>
+<h2 id="7-preserved-security-behavior"><a class="heading-anchor" href="#7-preserved-security-behavior">7. Preserved security behavior</a></h2>
+<p>All three view kinds—<code>.nhtml</code>, <code>.ndash</code>, and <code>neuron.app</code>—use the same
+dispatcher, session model, capability checks, manifest hash/approval, schema
+validation, path policy, rate limits, and size/work ceilings. <code>.ndash</code> changes
+only <code>script-src</code> by adding <code>'unsafe-inline'</code>; <code>connect-src</code> remains <code>'self'</code>.
+<code>bypassCSP</code> and disabled web security are forbidden.</p>
+<p>Workspace paths remain relative and reject absolute paths, drive letters, UNC,
+<code>~</code>, null bytes, raw or encoded traversal, <code>..</code>, encoded separators,
+double-decoding tricks, symlink/junction escapes, case-normalization bypasses,
+and out-of-policy targets. The canonical root and deepest existing ancestor are
+checked. Walkers do not follow links. Writes are atomic and require a base hash
+or revision; conflicts are 409. Deletes have separate capabilities, explicit
+confirmation, and conflict checks.</p>
+<p>Runtime assets use an immutable registry:</p>
+<pre><code class="language-text">htmx-2.0.10 -&gt; packaged app-owned htmx.min.js
+neuron.css  -&gt; app-owned theme asset
+component id -&gt; compile-time known app-owned CSS
+</code></pre>
+<p>The registry maps stable ids to known files/bytes. No part of a URL is appended
+to a packaged filesystem directory. Workspace styles/assets are separate,
+session-scoped registry entries created from the validated manifest and path
+policy. CSS is size-capped; <code>@import</code>, remote/protocol-relative URLs, and
+unregistered URLs are rejected.</p>
+<p>The custom protocol is a request interface, not a privilege bridge. The view
+still has no preload, Node, <code>ipcRenderer</code>, <code>process</code>, shell, raw filesystem,
+network capability, or uncontrolled window. It cannot call the main renderer's
+<code>electronAPI</code>.</p>
+<p>Navigation hardening changes from a string-prefix origin test to parsed,
+session-aware allowlists:</p>
+<ul>
+<li>main-frame navigation: only that session's <code>/document</code> (and same-document
+fragments if desired);</li>
+<li>subresources/XHR: only its canonical runtime, style, asset, and API routes;</li>
+<li>no other host, scheme, sid, port, credentials, or unrecognized path;</li>
+<li>all <code>window.open</code> denied; all permissions denied;</li>
+<li><code>will-frame-navigate</code> covers subframes and rejects every frame route because
+CSP has <code>frame-src 'none'</code>;</li>
+<li>redirects are parsed and checked before following; dispatcher-generated
+redirects are internal and allowlisted only.</li>
+</ul>
+<h2 id="8-request-and-response-semantics"><a class="heading-anchor" href="#8-request-and-response-semantics">8. Request and response semantics</a></h2>
+<p>The internal contract is transport-neutral:</p>
+<pre><code class="language-ts">interface TransportRequest {
+  requestId: string;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  url: URL;
+  headers: ReadonlyHeaders;
+  body: Uint8Array | null;
+  binding: { transport: 'protocol' | 'loopback'; partition?: string; webContentsId?: number };
+}
+
+type ResponseBody =
+  | { kind: 'empty' }
+  | { kind: 'text'; text: string }
+  | { kind: 'bytes'; bytes: Uint8Array };
+
+interface TransportResponse {
+  status: number;
+  headers: Readonly&lt;Record&lt;string, string&gt;&gt;;
+  body: ResponseBody;
+  representation: 'json' | 'html-fragment' | 'document' | 'css' | 'javascript' | 'binary';
+  mime: string;
+  redirect: { denied: true; reason: string } | { internalPath: string } | null;
+}
+</code></pre>
+<p>Adapters enforce request byte limits before dispatch. The protocol adapter reads
+the <code>Request</code> body once and returns a <code>Response</code>; the HTTP adapter reads its
+stream once and writes status/headers/body. Neither catches a domain exception
+and exposes its message. Domain errors map to stable public codes.</p>
+<p><code>HX-Request: true</code> selects an HTML presenter only for routes with an HTML
+contract; other callers get JSON. Safe fragments escape every untrusted value.
+Security headers include CSP on documents, <code>X-Content-Type-Options: nosniff</code>,
+<code>Referrer-Policy: no-referrer</code>, <code>Cache-Control: no-store</code>, and
+<code>Vary: HX-Request</code> where applicable. Header names/values are allowlisted and
+newline-free.</p>
+<p>Responses never contain stack traces, absolute roots, tokens, partition names,
+environment variables, process ids, raw exceptions, arbitrary filenames from
+registry internals, or host platform details.</p>
+<h2 id="9-naming"><a class="heading-anchor" href="#9-naming">9. Naming</a></h2>
+<p>Use <code>route</code>, <code>capability</code>, <code>dispatcher</code>, <code>workspaceService</code>,
+<code>fileContentService</code>, <code>directoryService</code>, <code>noteService</code>, <code>fragmentService</code>,
+<code>runtimeAssetService</code>, <code>viewDocumentService</code>, <code>sessionBinding</code>, and
+<code>pathPolicy</code>.</p>
+<p>Do not introduce <code>fsFunction</code>, <code>callFs</code>, <code>rawFs</code>, <code>execute</code>, <code>operationName</code>,
+<code>nodeMethod</code>, or other names that model the public platform as a wrapper around
+Node <code>fs</code>. Public names describe Neuron product semantics.</p>
+<h2 id="10-implementation-and-migration-plan"><a class="heading-anchor" href="#10-implementation-and-migration-plan">10. Implementation and migration plan</a></h2>
+<p>Each phase is independently reviewable and retains one dispatcher.</p>
+<ol>
+<li><strong>Extract dispatcher while loopback behavior is unchanged.</strong> Add
+<code>src/main/htmx/request.ts</code>, <code>response.ts</code>, <code>dispatcher.ts</code>, <code>routes.ts</code>, and
+service modules under <code>src/main/htmx/services/</code>. Modify <code>server.ts</code>,
+<code>sessions.ts</code>, <code>html.ts</code>, and <code>tools/htmx-views.test.mjs</code>. Convert the live
+route assertions into dispatcher contract tests plus HTTP adapter tests.
+No protocol code yet.</li>
+<li><strong>Protocol feasibility adapter and binding gate.</strong> Add
+<code>src/main/htmx/protocol.ts</code>; modify <code>src/main/main.ts</code> to register scheme
+privileges before ready and <code>src/main/htmx/index.ts</code> to install a handler per
+in-memory partition. Harden <code>will-attach-webview</code>,
+<code>did-attach-webview</code>, <code>will-frame-navigate</code>, redirect, popup, permission, and
+partition-reuse checks. Add Electron E2E infrastructure/tests. Do not change
+the shipping default until the entire matrix passes.</li>
+<li><strong>Runtime asset registry.</strong> Add
+<code>src/main/htmx/services/runtimeAssetService.ts</code> and an explicit registry;
+modify <code>tools/copy-htmx.mjs</code> only if the stable packaged location must move,
+plus build/package tests. Keep assets app-owned and offline.</li>
+<li><strong>View documents and workspace assets.</strong> Move wrapping/CSP/URL generation
+into <code>viewDocumentService</code>; modify <code>html.ts</code>, <code>theme.ts</code>, <code>index.ts</code>, and
+session registry construction. Cover <code>.nhtml</code>, <code>.ndash</code>, <code>neuron.app</code>,
+auto-style, declared assets, interpolation, and legacy absolute URL alias.</li>
+<li><strong>HTMX/API routes.</strong> Move each current route through the dispatcher and
+named services. Add directory tree/list/count/stat and semantic note routes.
+Modify <code>manifest.ts</code> only for explicitly approved new note capabilities.
+No route lands without schema, cap, path, limit, JSON, HTML, and error tests.</li>
+<li><strong>Migrate first-party authoring material.</strong> Modify demo <code>.nhtml</code>, <code>.ndash</code>,
+<code>neuron.app</code>, <code>.neuron/templates</code>, relevant manifests, <code>docs/htmx-views.md</code>,
+<code>docs/custom-views.md</code>, and <a href="https://github.com/neuron-workspace/neuron-skills"><code>neuron-skills</code></a> to use
+<code>./api/v1/...</code>. Never rewrite user workspaces.</li>
+<li><strong>Ship protocol; dev-flag loopback.</strong> Production builds hard-disable the
+listener. Development may opt into loopback for adapter tests/manual
+debugging, but both transports call the same dispatcher. Add a packaged E2E
+assertion that no local TCP port listens in protocol mode. After a release
+proves rollback is unnecessary, removal of the dev adapter is a separate
+decision, not part of this migration.</li>
+</ol>
+<h2 id="11-test-plan-and-required-trace"><a class="heading-anchor" href="#11-test-plan-and-required-trace">11. Test plan and required trace</a></h2>
+<h3 id="unit"><a class="heading-anchor" href="#unit">Unit</a></h3>
+<ul>
+<li>URL parsing/canonicalization, route matching, methods, compatibility alias,
+query repetition/encoding, malformed custom URLs, and unknown routes.</li>
+<li>HTTP and Electron normalization to identical <code>TransportRequest</code> fixtures.</li>
+<li><code>TransportResponse</code> serialization, MIME, <code>Vary</code>, CSP, <code>HX-*</code>, security
+headers, byte/text bodies, unsupported headers, and redirect denial.</li>
+<li>Session lookup, expiry/revocation, manifest hash, cross-session sid,
+partition mismatch, webContents mismatch/presence coverage, and duplicate
+partition/attach rejection.</li>
+<li>Immutable runtime asset registry, unknown ids, MIME, packaged path
+confinement, workspace asset ids, CSS policy, and size limits.</li>
+<li>Existing path policy plus encoded/double-encoded traversal, symlink/junction,
+case, UNC/drive/home/null/absolute, non-existing ancestors, and policy edges.</li>
+<li>Every capability, new note-cap separation, schema unknown keys, body limits,
+rate limits, walk/search limits, atomic writes, conflicts, and delete
+confirmation.</li>
+<li>JSON/HTML representation, escaping, error fragments, and absence of sensitive
+strings in every error class.</li>
+</ul>
+<h3 id="integration-against-the-shared-dispatcher"><a class="heading-anchor" href="#integration-against-the-shared-dispatcher">Integration against the shared dispatcher</a></h3>
+<ul>
+<li>Document, htmx runtime, Neuron CSS, component CSS, view style, and declared
+asset load for all three view kinds.</li>
+<li>GET/POST/PUT/DELETE normalization, forms, JSON, query strings, <code>HX-Request</code>,
+HTML vs JSON, and safe 403/404/409/429 behavior.</li>
+<li>Fragment swaps, newly inserted htmx controls, error events/targets, internal
+redirect headers, blocked redirects, and reload-on-save revocation.</li>
+<li>Run the same dispatcher contract through protocol and development HTTP
+adapters; assert equivalent status, headers, and body for transport-neutral
+cases.</li>
+</ul>
+<h3 id="electron-e2e-security-gate"><a class="heading-anchor" href="#electron-e2e-security-gate">Electron E2E security gate</a></h3>
+<ul>
+<li>No Node, preload, <code>ipcRenderer</code>, <code>process</code>, shell, raw filesystem, or permission
+access from <code>.nhtml</code>, <code>.ndash</code>, or <code>neuron.app</code>.</li>
+<li>No navigation outside exact session routes, subframes, popups, downloads,
+service workers, remote network, local services, websocket, beacon, or
+protocol escape.</li>
+<li>Another view's sid, a copied URL in another view/window/partition, duplicate
+partition attachment, and stale/revoked URLs all fail.</li>
+<li><code>neuron://fs</code>, <code>neuron://file</code>, malformed/encoded URLs, unknown runtime ids,
+and registry path tricks never reach a filesystem service.</li>
+<li><strong>No local TCP listener in protocol mode.</strong> DNS rebinding and Host-header
+attacks become inapplicable because no HTTP server exists; the dev adapter
+still rejects them when explicitly enabled.</li>
+<li>CSP remains enforced without <code>bypassCSP</code>; <code>.ndash</code> gains only inline script
+and still cannot exfiltrate.</li>
+<li>Instrument requests by resource type and prove partition and, where Electron
+supplies it, webContents binding. Record any missing <code>webContentsId</code> coverage.</li>
+<li>Run in development and a packaged build on Windows, macOS, and Linux because
+custom-scheme Chromium behavior is the central migration risk.</li>
+</ul>
+<h3 id="required-end-to-end-trace"><a class="heading-anchor" href="#required-end-to-end-trace">Required end-to-end trace</a></h3>
+<p>For:</p>
+<pre><code class="language-html">&lt;section hx-get=&quot;./api/v1/context&quot; hx-trigger=&quot;load&quot;&gt;Loading…&lt;/section&gt;
+</code></pre>
+<ol>
+<li>Chromium resolves the standard relative URL from
+<code>neuron://view/&lt;sid&gt;/document</code> to
+<code>neuron://view/&lt;sid&gt;/api/v1/context</code>.</li>
+<li>htmx 2 sends GET with <code>HX-Request: true</code>.</li>
+<li>The handler installed on that view's in-memory Electron <code>Session</code> converts
+the <code>Request</code> to <code>TransportRequest</code> and supplies its partition binding.</li>
+<li>The dispatcher parses the sid, finds a live record, requires matching
+partition and bound webContents where available, rate-limits, matches
+<code>GET context</code>, and rejects a body.</li>
+<li><code>context</code> requires no extra capability but returns only the session's safe
+view/workspace name, theme, API version, and sorted granted capabilities.</li>
+<li>The HTML presenter escapes values and returns a context fragment with 200,
+HTML MIME, <code>Vary: HX-Request</code>, no-store, nosniff, and no internal paths.</li>
+<li>The protocol adapter creates the Electron <code>Response</code>; htmx swaps the fragment
+into the section.</li>
+<li>The test repeats the copied URL from another partition and asserts
+<code>binding_mismatch</code>/failure with no context data.</li>
+</ol>
+<h2 id="12-risks-rollback-and-limitations"><a class="heading-anchor" href="#12-risks-rollback-and-limitations">12. Risks, rollback, and limitations</a></h2>
+<h3 id="principal-risks"><a class="heading-anchor" href="#principal-risks">Principal risks</a></h3>
+<ol>
+<li><strong>Partition identity is the authentication boundary in protocol mode.</strong>
+Electron documents session-scoped handlers, but complete webContents-id
+visibility for custom-scheme subresources/XHR is unverified. The E2E proof is
+the release gate; failure selects B.</li>
+<li><strong>Chromium custom-scheme behavior can differ from HTTP at edges</strong> despite the
+Request/Response API: native forms, redirects, CORS classification, response
+header exposure, cookies, and CSP must be measured on all platforms.</li>
+<li><strong>Legacy authoring uses <code>/api/v1/...</code>.</strong> Without the bounded adapter alias,
+existing views resolve outside their sid path. First-party files migrate,
+user files are never rewritten, and rollback keeps the old transport.</li>
+<li><strong>Service extraction can change semantics.</strong> Route-by-route golden contract
+tests must be green before the protocol adapter is added. In particular,
+note writes cannot remain raw file writes.</li>
+<li><strong><code>&lt;webview&gt;</code> is itself a documented Electron stability risk.</strong> This decision
+preserves it; moving to <code>WebContentsView</code> or another host is separate work.</li>
+</ol>
+<p>Rollback is a release/configuration change, not a workspace conversion:</p>
+<ul>
+<li>Keep the shared dispatcher and reselect the loopback adapter.</li>
+<li>Re-enable boot-token + HttpOnly/SameSite cookie authentication, exact Host and
+Origin validation, ephemeral <code>127.0.0.1</code>, and the existing isolated
+partitions.</li>
+<li>Keep relative authoring: <code>./api/v1/...</code> also resolves correctly under a
+loopback document at <code>/views/&lt;sid&gt;/document</code>.</li>
+<li>Do not revert extracted services, route schemas, semantic naming, or tests.</li>
+<li>Revoke all protocol sessions during the switch; never carry protocol binding
+state into HTTP sessions.</li>
+</ul>
+<h3 id="current-concerns-observed-but-not-changed"><a class="heading-anchor" href="#current-concerns-observed-but-not-changed">Current concerns observed but not changed</a></h3>
+<ul>
+<li><code>src/main/main.ts</code> pins a view with string
+<code>url.startsWith(origin)</code>. Security navigation checks should compare parsed
+scheme, hostname, port, and route, not a string prefix.</li>
+<li><code>apiFragment</code> in <code>server.ts</code> loads and interpolates variables even when the
+session lacks <code>variables.read</code>; document interpolation correctly checks that
+capability. The dispatcher extraction must close this inconsistency.</li>
+<li>Current note/search/tag routes read workspace files directly rather than
+using editor/index services, and file routes can mutate a note as generic
+content. The target semantic split is required to avoid dirty-state and
+conflict bugs.</li>
+<li>Current browser tests assert returned error fragments but do not prove that
+htmx displays them; htmx 2 does not swap 4xx by default.</li>
+</ul>
+<p>No item above was modified by T-008.</p>
+<h2 id="verification-status-and-open-facts"><a class="heading-anchor" href="#verification-status-and-open-facts">Verification status and open facts</a></h2>
+<p>The Electron API signatures, registration timing, standard relative-resource
+behavior, Request/Response model, per-session handler rule, partition
+persistence semantics, and privilege names/defaults were verified against the
+official <code>v42.4.1</code> source linked above.</p>
+<p>The following remain explicitly unverified until implementation E2E:</p>
+<ul>
+<li>Electron 42.4.1 custom-scheme cookie behavior; the design does not rely on it.</li>
+<li>Exact custom-scheme XHR/native-form behavior for every method, body, header,
+status, and redirect case.</li>
+<li>Whether session <code>webRequest</code> supplies <code>webContentsId</code> for every custom-scheme
+document, runtime asset, stylesheet, XHR, and fetch request.</li>
+<li>The precise Chromium consequences of <code>secure</code> and <code>corsEnabled: false</code> beyond
+Electron's documented privilege labels.</li>
+<li>Cross-platform and packaged-app equivalence.</li>
+</ul>
+<p>Those are gates, not assumptions. None justifies <code>bypassCSP</code>, a generic
+filesystem protocol, a token in authored content, or a second authorization
+implementation.</p>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

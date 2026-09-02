@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Review the metadata-index decision, relational model, query surface, delivery plan, and tests." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Metadata index — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Metadata index</h1>
+        <p class="lede">Review the metadata-index decision, relational model, query surface, delivery plan, and tests.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#status-and-decision">Status and decision</a></li><li><a href="#verified-starting-point">Verified starting point</a></li><li><a href="#what-is-indexed">What is indexed</a></li><li><a href="#relational-shape">Relational shape</a></li><li><a href="#one-task-concept-three-source-kinds">One task concept, three source kinds</a></li><li><a href="#storage-decision">Storage decision</a></li><li><a href="#build-update-and-workspace-switching">Build, update, and workspace switching</a></li><li><a href="#staleness-corruption-and-recovery">Staleness, corruption, and recovery</a></li><li><a href="#query-surface-and-the-path-policy-boundary">Query surface and the path-policy boundary</a></li><li><a href="#concrete-queries">Concrete queries</a></li><li><a href="#phased-delivery-as-task-rows">Phased delivery as task rows</a></li><li><a href="#required-implementation-tests">Required implementation tests</a></li><li><a href="#required-end-to-end-scenario">Required end-to-end scenario</a></li><li><a href="#what-this-does-not-solve-and-what-it-costs">What this does not solve and what it costs</a></li><li><a href="#unverified-facts-and-implementation-gates">Unverified facts and implementation gates</a></li></ul></details><h2 id="status-and-decision"><a class="heading-anchor" href="#status-and-decision">Status and decision</a></h2>
+<p>This record specifies a derived metadata index for one active workspace. It is
+an implementation design, not a description of an API that exists today. There
+is currently no metadata-index service, preload method, IPC handler, or view
+route.</p>
+<p>The index uses <strong>SQLite through the existing <code>sql.js</code> runtime dependency</strong>. It
+lives at
+<code>&lt;userData&gt;/metadata-index/&lt;sha256(canonical-workspace-root)&gt;/index.sqlite</code>,
+never inside the workspace. Markdown, MDX, and <code>.db</code> files remain the only
+sources of truth. The index does not own a user-editable value, identifier, or
+timestamp and must be safe to delete while Neuron is stopped or running.</p>
+<p>The index is useful because it turns cross-file questions into bounded indexed
+queries and moves parsing off render paths. It must not become a second storage
+model, a generic SQL endpoint, or a permission bypass.</p>
+<h2 id="verified-starting-point"><a class="heading-anchor" href="#verified-starting-point">Verified starting point</a></h2>
+<p>The following was verified in this checkout:</p>
+<ul>
+<li><code>src/renderer/lib/frontmatter/parse.ts</code> accepts only a leading delimited YAML
+block, uses the <code>core</code> schema, rejects pathological structures, removes
+prototype-polluting keys, and returns an invalid result rather than repairing
+malformed YAML. Its serializer preserves the body byte-for-byte and preserves
+untouched YAML nodes. Indexing is read-only and must reuse those parse
+semantics; it must never serialize a note.</li>
+<li>The frontmatter implementation is framework-free but currently lies under
+the renderer tree. <code>tsconfig.main.json</code> has <code>src/main</code> as its <code>rootDir</code>, so an
+implementation cannot simply import that source from main. The pure parser
+must be moved to a shared location and consumed by both processes; copying it
+would create two definitions of valid frontmatter.</li>
+<li><code>src/renderer/lib/db.ts</code> is the read-only parser for <code>.db</code> v1 and v2, preserves
+unknown fields on writes, and caps database files at 2 MiB. It has the same
+renderer-only location problem and must likewise become shared rather than be
+reimplemented in the index.</li>
+<li><code>src/main/main.ts</code> keeps <code>activeRepoPath</code> in the <code>userData</code> settings store.
+Its chokidar watcher uses <code>ignoreInitial: true</code> and currently only sends
+<code>notes:changed</code> to the renderer. A workspace switch closes and recreates the
+watcher. <code>notes:write</code> uses a temporary file and rename; <code>notes:delete</code> uses
+<code>unlink</code>.</li>
+<li>Current <code>/api/v1/search</code>, <code>/api/v1/notes</code>, and <code>/api/v1/tags</code> handlers walk
+and read permitted Markdown files for every request. <code>/api/v1/db</code> reads one
+path-policy-approved database and is deliberately not a query engine.</li>
+<li>The journal precedent is main-process state under
+<code>&lt;userData&gt;/journal/&lt;sha256(workspaceRoot)&gt;</code>, with integrity checks and
+atomic replacement. D20 keeps it out of the view API because an aggregate
+store can reveal files outside a view's path policy. The metadata index has
+the same security property.</li>
+<li><code>sql.js</code> is declared as a runtime dependency, its WASM is unpacked by the
+packaged build, and main already uses it for Chrome cookie import. This
+worktree has no installed <code>sql.js</code> module, so its compile options, FTS5
+availability, WASM startup time, and worker-thread packaging could not be
+executed here. This design does not depend on FTS, JSON1, or any optional
+SQLite extension.</li>
+</ul>
+<h2 id="what-is-indexed"><a class="heading-anchor" href="#what-is-indexed">What is indexed</a></h2>
+<p>Only <code>.md</code>, <code>.mdx</code>, and <code>.db</code> files participate. Canvas and HTML contents do
+not earn a place: none of the required queries use them, and indexing them
+would introduce new parsers and security semantics without an outcome.</p>
+<p>Every participating file has a <code>files</code> row containing normalized
+workspace-relative POSIX path, kind, byte size, filesystem <code>mtime</code>, SHA-256 of
+the bytes last parsed, parse state, safe diagnostic code, and index generation.
+Absolute paths and raw parser exception text are not stored in query rows.</p>
+<p>For Markdown and MDX, the index stores:</p>
+<ul>
+<li>The derived title: valid frontmatter <code>title</code>, otherwise the first level-one
+ATX heading, otherwise the filename stem. It also stores the body after
+frontmatter. The body copy is required for exact unlinked-mention
+verification; it is a cost, not a second source of truth.</li>
+<li>Every valid <strong>top-level</strong> frontmatter scalar and every scalar list element,
+with original key, normalized key, list position, value kind, and typed
+value. Nested maps and lists containing structured values remain visible in
+the source but are not queryable. This earns its place because status boards
+and future property filters must not require a schema migration for every new
+user key. The parser's existing size, depth, key, and array limits remain the
+limits. Invalid frontmatter produces <code>frontmatter_valid = 0</code> and no
+frontmatter-derived rows; retaining the previous values would make the index
+lie about the current file.</li>
+<li>First-class normalized columns for <code>title</code>, <code>type</code>, <code>status</code>, <code>due</code>,
+<code>project</code>, <code>priority</code>, <code>completed</code>/<code>done</code>, <code>created</code>, and <code>updated</code>, plus
+<code>tags</code>/<code>tag</code> and <code>aliases</code>/<code>alias</code>. These earn columns because they appear in
+the required queries or define task/project identity. A due date is queryable
+only when it is exactly <code>YYYY-MM-DD</code>; an unrecognized value remains in the
+generic frontmatter table but is not silently coerced.</li>
+<li>Tags from valid <code>tags</code>/<code>tag</code> frontmatter and inline <code>#tag</code> occurrences outside
+frontmatter and fenced code. Each row records its origin. The display spelling
+is preserved and a JavaScript-normalized comparison key is stored; query
+correctness must not depend on SQLite's ASCII-only <code>NOCASE</code> behavior.</li>
+<li>Wiki-links outside fenced code, with source location, raw target, normalized
+target, and resolved path when one exists. Resolution follows the convention
+already documented in the demo workspace: an exact workspace-relative path
+without <code>.md</code>/<code>.mdx</code>. Unresolved and ambiguous links remain rows. Alias,
+<code>#heading</code>, and display-text navigation semantics are not established by the
+current product and are not invented here; their raw text is retained for a
+later navigation decision.</li>
+<li>ATX headings outside fenced code: ordinal, level, text, line, and a derived
+anchor. They earn their small marginal cost because backlink results need
+useful context and future heading-target resolution must not rescan the note.
+The anchor is not a navigation promise until the renderer's slug behavior is
+specified and tested.</li>
+<li>GitHub-style list checkboxes (<code>- [ ]</code>, <code>* [x]</code>, or <code>+ [X]</code>) outside fenced
+code: checked state, text, line, character offset, and occurrence. Headings,
+links, tags, checkboxes, and body terms must come from one bounded body scan,
+not four regex passes over the file.</li>
+<li>Distinct normalized body terms, used only to narrow unlinked-mention
+candidates before the stored body is checked for an exact, boundary-aware
+phrase outside code and explicit wiki-link spans. This avoids relying on
+unverified FTS support and avoids a body scan of every note for every target.</li>
+</ul>
+<p>For <code>.db</code>, the shared v1/v2 parser supplies validated tables and rows. The index
+does not mirror arbitrary database cells. It projects only task and project
+rows described below. A malformed or oversized database keeps a <code>files</code> row
+with a diagnostic and contributes no stale entities.</p>
+<h2 id="relational-shape"><a class="heading-anchor" href="#relational-shape">Relational shape</a></h2>
+<p>The exact migration DDL belongs with implementation tests, but the storage
+contract is fixed by these relations:</p>
+<pre><code class="language-text">meta(key primary key, value)
+files(path primary key, kind, size_bytes, mtime_ms, sha256,
+      parse_state, diagnostic_code, generation)
+notes(path primary key -&gt; files, title, body_text, frontmatter_valid,
+      type_norm, status, status_norm, due_day, project_ref,
+      priority, completed, has_task_metadata, source_mtime_ms)
+frontmatter_values(path -&gt; notes, key, key_norm, ordinal,
+                   value_kind, text_value, number_value, boolean_value)
+tags(path -&gt; notes, tag, tag_norm, origin, ordinal)
+headings(path -&gt; notes, ordinal, level, text, anchor, line)
+wiki_links(source_path -&gt; notes, ordinal, raw_target, target_key,
+           resolved_path, line, start_offset, end_offset)
+note_names(path -&gt; notes, name, name_norm, origin)
+body_terms(path -&gt; notes, term)
+tasks(task_id primary key, source_kind, source_path -&gt; files, source_local_id,
+      title, status, status_norm, due_day, project_ref, project_key,
+      priority, completed, last_touched_ms, line)
+projects(project_id primary key, source_kind, source_path -&gt; files,
+         source_local_id, name, project_key, status, status_norm,
+         last_touched_ms)
+task_project_links(task_id -&gt; tasks, project_id -&gt; projects)
+</code></pre>
+<p>Foreign keys are enabled and source-derived child rows cascade from <code>files</code>.
+Indexes cover normalized frontmatter key/value, tag, wiki-link resolved target,
+body term, task completion/due/project/status/touched time, and project key and
+status. All writes for one source file occur in one SQLite transaction, so a
+query sees either the old complete projection or the new complete projection,
+never half of each.</p>
+<p><code>meta</code> contains at least the schema version, parser version, canonical root,
+build state, completed generation, and last persisted generation. <code>PRAGMA user_version</code> duplicates the schema version as an early compatibility check.</p>
+<h2 id="one-task-concept-three-source-kinds"><a class="heading-anchor" href="#one-task-concept-three-source-kinds">One task concept, three source kinds</a></h2>
+<p>The index <strong>does unify</strong> task notes, checkboxes, and task rows into <code>tasks</code>.
+They share query fields but retain provenance; identical text never causes
+deduplication.</p>
+<ol>
+<li>A note is a task when valid frontmatter has a string <code>type</code> equal to <code>task</code>
+after trim and case normalization. Its local id is <code>note</code>, and its task id is
+<code>note:&lt;source-path&gt;</code>. Title and task fields come from its canonical
+frontmatter columns.</li>
+<li>Every checkbox is a task. It inherits <code>status</code>, <code>due</code>, <code>project</code>, and
+<code>priority</code> from valid containing-note frontmatter when present; the checkbox
+syntax alone decides completion. Its local id is the first 16 hex characters
+of SHA-256 over normalized checkbox text plus the occurrence number among
+identical normalized checkboxes. Its id is
+<code>checkbox:&lt;source-path&gt;#&lt;local-id&gt;</code>. Moving a checkbox without changing its
+text preserves it; editing its text changes it. This is deliberate: without
+writing a hidden id into Markdown, a checkbox has no durable identity.</li>
+<li>In v2 <code>.db</code> files, a table whose id normalizes exactly to <code>tasks</code> contributes
+rows. A v1 file contributes tasks only when its filename stem normalizes to
+<code>tasks</code>. The recognized property ids are <code>title</code>, <code>status</code>, <code>due</code>, <code>project</code>,
+<code>priority</code>, and <code>done</code>/<code>completed</code>; the stored option id is the value. A row's
+local id is <code>&lt;table-id&gt;/&lt;row.id&gt;</code> and its task id is
+<code>db:&lt;source-path&gt;#&lt;local-id&gt;</code>. Neuron does not infer that an arbitrary table
+is tasks merely because some columns look familiar.</li>
+</ol>
+<p>Completion for note and database tasks is true when a boolean
+<code>completed</code>/<code>done</code> is true, otherwise when normalized status is <code>done</code> or
+<code>completed</code>. Active-task queries use <code>completed = 0</code>, not a hard-coded list of
+all possible user statuses. <code>last_touched_ms</code> is the source file's filesystem
+mtime. For a <code>.db</code> task this is necessarily file-level: the current <code>.db</code> format
+has no row modification timestamp, so editing any row makes every row in that
+file look recently touched. Row-level staleness is not claimed.</p>
+<p>Projects are unified similarly from notes with <code>type: project</code> and a v2 table
+whose id normalizes to <code>projects</code> (or a v1 file named <code>Projects.db</code>). A project
+keeps its source identity, while <code>project_key</code> is a normalized name used for
+matching a task's textual <code>project</code> value. If exactly one project has that key,
+a link is materialized. No match and multiple matches remain respectively
+unresolved and ambiguous rather than guessing. “Task with no project” means an
+empty project reference; unresolved and ambiguous references are separate
+diagnostics. “Project with no active task” uses only unambiguous materialized
+links.</p>
+<p>All identities above are derived locators. Renaming a source path changes its
+entity ids. Durable identity across renames or checkbox-text edits would
+require persistent ids in the source formats and is outside this cache design.</p>
+<h2 id="storage-decision"><a class="heading-anchor" href="#storage-decision">Storage decision</a></h2>
+<p><code>sql.js</code> wins because the required work is relational: joins between tasks and
+projects, range predicates over dates and mtimes, reverse lookup of links,
+grouping by status, and several secondary indexes. SQLite supplies transactions,
+constraints, query planning, schema versioning, and integrity checks. It is
+already a packaged dependency, so this decision adds no runtime package and
+does not reopen D8.</p>
+<p>This is specifically <code>sql.js</code>, not native file-backed SQLite. The WASM database
+is loaded into memory, and persistence exports a complete binary snapshot.
+After committed changes, export is debounced; the bytes are written to a new
+file in the same store directory, flushed, and atomically replace the previous
+snapshot. Failure to export leaves the previous coherent snapshot and never
+blocks a workspace write. Startup reconciliation recovers the missing index
+updates.</p>
+<p>The costs are material:</p>
+<ul>
+<li>The file is opaque and can corrupt. Detection and discard/rebuild are part of
+the design, not an operational afterthought.</li>
+<li><code>sql.js</code> loads the database whole and duplicates indexed content in WASM
+memory. Export briefly needs another full-size byte array. The full note body
+copy is the dominant disk and memory cost.</li>
+<li>WASM initialization and complete-snapshot export cost CPU. Exports must be
+coalesced and run away from the Electron UI event loop.</li>
+</ul>
+<p>A JSON document was rejected. Its benefits are genuine: trivial inspection,
+simple atomic replacement, no binary decoder, and no query runtime. It is still
+loaded whole, rewrites the whole document on persistence, and would require
+hand-built secondary indexes, joins, range filtering, uniqueness checks,
+schema migration code, and transaction-like staging. At 10,000 notes, every
+new dashboard would either scan JavaScript objects again or add another custom
+index that must remain consistent. JSON saves one recoverable binary-cache risk
+by creating an ongoing query-engine maintenance burden.</p>
+<h2 id="build-update-and-workspace-switching"><a class="heading-anchor" href="#build-update-and-workspace-switching">Build, update, and workspace switching</a></h2>
+<p>Indexing is owned by a main-process metadata service. CPU-heavy parsing and the
+<code>sql.js</code> database run in a dedicated Node worker so a 10,000-note build cannot
+freeze the Electron main event loop. <code>worker_threads</code> is Node standard library,
+not a dependency. The existing packaged <code>sql.js</code> loader works in main, but the
+worker/WASM packaged path is explicitly an implementation test because it was
+not runnable in this worktree.</p>
+<p>Opening a workspace is hybrid rather than “full scan every time” or “watcher
+only”:</p>
+<ol>
+<li>Canonicalize the real workspace root, derive its store key, close the prior
+workspace worker, and start chokidar with the existing ignore policy. Wait
+for chokidar's <code>ready</code> boundary and queue subsequent supported-file events.
+A watcher event is a hint, never proof of current contents.</li>
+<li>Try the persisted index. If it passes all validation, expose its last
+complete generation immediately with state <code>reconciling</code>. Enumerate
+<code>.md</code>, <code>.mdx</code>, and <code>.db</code> paths and stats in the worker. New paths, missing
+paths, or paths whose size/mtime differ are staged for add, delete, or
+reparse. Unchanged size/mtime paths are trusted on warm open; a same-size edit
+that deliberately preserves mtime is a known blind spot and is repaired by
+manual/full rebuild.</li>
+<li>If no valid index exists, create a separate in-memory database with state
+<code>building</code>, enumerate all supported files, and parse in bounded batches. Do
+not expose partial query results as complete. Progress is <code>(files indexed, files discovered, skipped/invalid count)</code>.</li>
+<li>Reads use <code>fs.promises</code>; parsing work stays in the worker. A file is accepted
+only when its before/after stat is stable. If it changes while being read,
+retry it from the event queue. Apply a warm reconciliation as one generation
+transaction; publish a cold database only after its full scan is complete.</li>
+<li>Replay queued watcher events against the completed scan, coalescing repeated
+events per path but preserving the last observed operation. Only then mark
+the generation <code>ready</code> and schedule an atomic export.</li>
+</ol>
+<p>After readiness, add/change events read and replace one file projection in one
+transaction. Unlink removes its <code>files</code> row and cascades. Chokidar does not
+promise a rename event, so a rename is intentionally delete-old plus add-new;
+identity is not preserved. External edits take exactly the same path. Internal
+<code>notes:write</code>/delete operations may enqueue the known path after success for
+lower latency, but they must not await the derived index or fail because it is
+unavailable; the watcher remains the recovery path and duplicate events are
+coalesced.</p>
+<p>When a parser rejects a current file, the transaction removes its old derived
+rows and records a safe invalid/too-large state. Keeping old metadata after a
+bad external edit would present stale tasks as current. When the file becomes
+valid, the next change replaces that diagnostic normally.</p>
+<p>The performance budgets are release gates, not measured claims:</p>
+<ul>
+<li>Opening the app and trusted renderer must not wait for the index. No indexing
+slice may block the Electron main event loop for more than 50 ms.</li>
+<li>On reference release hardware with a local SSD, a warm 10,000-note workspace
+with no changes should reconcile in 2 seconds at p95; a cold 10,000-note,
+100-MiB workspace should become query-ready in 10 seconds at p95.</li>
+<li>If either budget is missed, the implementation is not allowed to hide it with
+an infinite spinner or partial results. It reports progress and remains
+usable for direct file editing; profiling decides whether worker batching,
+schema size, or the budget must be revisited.</li>
+</ul>
+<p>These budgets and memory numbers remain unverified until the implementation
+benchmark task runs on Windows, macOS, and Linux.</p>
+<h2 id="staleness-corruption-and-recovery"><a class="heading-anchor" href="#staleness-corruption-and-recovery">Staleness, corruption, and recovery</a></h2>
+<p>The final snapshot is accepted only when all of these hold:</p>
+<ul>
+<li>SQLite opens, its standard quick integrity check returns <code>ok</code>, foreign-key
+checking is clean, and all required tables/indexes exist.</li>
+<li><code>PRAGMA user_version</code>, the <code>meta</code> schema version, and parser version are the
+exact supported values.</li>
+<li>Stored canonical root equals the active canonical root, build state is
+<code>complete</code>, and the persisted generation is internally consistent.</li>
+</ul>
+<p>A failed check, unknown schema version, parser-version change, truncated file,
+or leftover temporary export causes the cache to be closed and deleted and a
+new cold build to start. There is no index migration: reparsing source is both
+safer and simpler because the database is derived. Temporary files are never
+opened as a final index. A crash during a build leaves the previous snapshot or
+no snapshot; a crash between an in-memory commit and export loses only cached
+work and is repaired by reconciliation.</p>
+<p>The service exposes an explicit full-rebuild action to the trusted renderer.
+It closes and deletes only the resolved store for the active workspace, then
+rebuilds from source. Rebuild never writes the workspace, never invokes the
+journal, and never changes a note or <code>.db</code> byte. Therefore corruption recovery,
+schema replacement, and manual repair are always data-safe.</p>
+<h2 id="query-surface-and-the-path-policy-boundary"><a class="heading-anchor" href="#query-surface-and-the-path-policy-boundary">Query surface and the path-policy boundary</a></h2>
+<p>The trusted renderer gets a narrow proposed preload namespace, backed by IPC:</p>
+<pre><code class="language-ts">metadataIndex.status(): Promise&lt;IndexStatus&gt;
+metadataIndex.query(request: MetadataQueryV1): Promise&lt;MetadataResultV1&gt;
+metadataIndex.rebuild(): Promise&lt;{ accepted: true }&gt;
+metadataIndex.onChanged(callback: (generation: number) =&gt; void): () =&gt; void
+</code></pre>
+<p><code>MetadataQueryV1</code> is a closed discriminated union of the query kinds below,
+with validated dates, integer limits, and workspace-relative paths. It is not
+SQL, does not accept column names, expressions, or arbitrary order clauses, and
+always returns an envelope containing index state and generation. A renderer
+can show <code>building</code>/<code>reconciling</code> rather than treating partial or last-known
+results as current. These methods do not exist today; their addition requires
+the normal preload and renderer declaration changes in the implementation
+task.</p>
+<p><strong>A sandboxed HTML view gets no index method and no index HTTP route in these
+phases.</strong> This is the concrete leak prevention:</p>
+<ul>
+<li>The binary is outside the workspace, so <code>resolveInWorkspace</code> cannot reach it.</li>
+<li>The webview has no preload or <code>ipcRenderer</code>, so it cannot call trusted-renderer
+IPC.</li>
+<li>The loopback view server receives no reference to the metadata service and
+registers no <code>/api/v1/index</code>, task, project, backlink, or aggregate route.</li>
+<li>Existing <code>/api/v1/notes</code>, <code>/tags</code>, <code>/search</code>, and <code>/db</code> retain their current
+capabilities and per-path checks; this record does not silently switch them
+to unfiltered aggregate data.</li>
+</ul>
+<p>This means renderer-owned dashboards ship first. If indexed queries are later
+offered to views, that is a separate security task. Its minimum design is to
+reuse an existing capability appropriate to the source, derive the allowed
+source-path set with the existing compiled <code>readPolicy</code>, restrict <strong>every input
+row before joins, grouping, counts, or absence queries</strong>, and test mixed allowed
+and forbidden fixtures. Filtering returned rows after calculating totals is
+still a leak: “three overdue tasks” reveals forbidden files even if their names
+are removed. A generic metadata capability, raw SQL route, or filter-after-
+aggregate implementation is prohibited.</p>
+<h2 id="concrete-queries"><a class="heading-anchor" href="#concrete-queries">Concrete queries</a></h2>
+<p>The examples show the fixed semantics. Implementations use bound parameters and
+fixed statements/query builders; snippets are abbreviated only for projection
+columns and limits.</p>
+<h3 id="notes-with-unchecked-todos-but-no-task-metadata"><a class="heading-anchor" href="#notes-with-unchecked-todos-but-no-task-metadata">Notes with unchecked TODOs but no task metadata</a></h3>
+<p><code>has_task_metadata</code> is true when valid frontmatter contains <code>type: task</code> or any
+of <code>status</code>, <code>due</code>, <code>project</code>, <code>priority</code>, <code>completed</code>, or <code>done</code>.</p>
+<pre><code class="language-sql">SELECT n.path, n.title, COUNT(*) AS unchecked_count
+FROM notes n
+JOIN tasks t ON t.source_path = n.path
+            AND t.source_kind = 'checkbox'
+WHERE n.has_task_metadata = 0 AND t.completed = 0
+GROUP BY n.path, n.title
+ORDER BY n.path
+LIMIT :limit;
+</code></pre>
+<h3 id="tasks-with-no-project-unresolved-project-references"><a class="heading-anchor" href="#tasks-with-no-project-unresolved-project-references">Tasks with no project; unresolved project references</a></h3>
+<pre><code class="language-sql">SELECT task_id, source_kind, source_path, title, status, due_day
+FROM tasks
+WHERE completed = 0
+  AND (project_ref IS NULL OR trim(project_ref) = '')
+ORDER BY due_day IS NULL, due_day, source_path
+LIMIT :limit;
+</code></pre>
+<p>Unresolved or ambiguous non-empty references use a separate query: left join
+<code>task_project_links</code>, select tasks with a non-empty <code>project_ref</code> and no link,
+and return match state. They are not mislabeled “no project.”</p>
+<h3 id="active-projects-with-no-active-task"><a class="heading-anchor" href="#active-projects-with-no-active-task">Active projects with no active task</a></h3>
+<pre><code class="language-sql">SELECT p.project_id, p.source_path, p.name, p.status
+FROM projects p
+WHERE p.status_norm = 'active'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM task_project_links l
+    JOIN tasks t ON t.task_id = l.task_id
+    WHERE l.project_id = p.project_id AND t.completed = 0
+  )
+ORDER BY p.name, p.source_path
+LIMIT :limit;
+</code></pre>
+<h3 id="due-this-week-overdue-and-without-a-due-date"><a class="heading-anchor" href="#due-this-week-overdue-and-without-a-due-date">Due this week, overdue, and without a due date</a></h3>
+<p>The renderer supplies local-calendar <code>YYYY-MM-DD</code> boundaries; the index does
+not guess locale or week start. <code>:end_exclusive</code> is the day after the visible
+week.</p>
+<pre><code class="language-sql">-- This week
+SELECT * FROM tasks
+WHERE completed = 0 AND due_day &gt;= :start_day AND due_day &lt; :end_exclusive
+ORDER BY due_day, source_path LIMIT :limit;
+
+-- Overdue
+SELECT * FROM tasks
+WHERE completed = 0 AND due_day &lt; :today
+ORDER BY due_day, source_path LIMIT :limit;
+
+-- No valid due date
+SELECT * FROM tasks
+WHERE completed = 0 AND due_day IS NULL
+ORDER BY last_touched_ms, source_path LIMIT :limit;
+</code></pre>
+<h3 id="kanban-across-notes-with-status"><a class="heading-anchor" href="#kanban-across-notes-with-status">Kanban across notes with <code>status:</code></a></h3>
+<p>This is intentionally a note query, not a task query. It includes any valid
+frontmatter <code>status</code>, whether or not <code>type: task</code> is present.</p>
+<pre><code class="language-sql">SELECT path, title, status, status_norm, due_day, project_ref
+FROM notes
+WHERE status IS NOT NULL AND trim(status) &lt;&gt; ''
+ORDER BY status_norm, title, path
+LIMIT :limit;
+</code></pre>
+<p>Grouping and column order happen in the trusted renderer from the bounded row
+set; no user string becomes SQL.</p>
+<h3 id="stale-tasks"><a class="heading-anchor" href="#stale-tasks">Stale tasks</a></h3>
+<pre><code class="language-sql">SELECT task_id, source_kind, source_path, title, status, last_touched_ms
+FROM tasks
+WHERE completed = 0 AND last_touched_ms &lt; :cutoff_ms
+ORDER BY last_touched_ms, source_path
+LIMIT :limit;
+</code></pre>
+<p>The caller computes <code>cutoff_ms = now - N days</code>; <code>N</code> is a validated positive
+integer with a product-defined upper bound.</p>
+<h3 id="backlinks"><a class="heading-anchor" href="#backlinks">Backlinks</a></h3>
+<pre><code class="language-sql">SELECT l.source_path, n.title, l.line, l.raw_target
+FROM wiki_links l
+JOIN notes n ON n.path = l.source_path
+WHERE l.resolved_path = :target_path
+ORDER BY l.source_path, l.ordinal
+LIMIT :limit;
+</code></pre>
+<h3 id="unlinked-mentions"><a class="heading-anchor" href="#unlinked-mentions">Unlinked mentions</a></h3>
+<p>For each title, filename stem, path-without-extension, and valid frontmatter
+alias of the target, first select candidate notes sharing the name's normalized
+terms. The fixed query builder creates one bound placeholder per term and
+requires all of them:</p>
+<pre><code class="language-sql">SELECT n.path, n.title, n.body_text
+FROM notes n
+JOIN body_terms bt ON bt.path = n.path
+WHERE bt.term IN (:term_1, :term_2 /* ... */)
+  AND n.path &lt;&gt; :target_path
+  AND NOT EXISTS (
+    SELECT 1 FROM wiki_links l
+    WHERE l.source_path = n.path AND l.resolved_path = :target_path
+  )
+GROUP BY n.path, n.title, n.body_text
+HAVING COUNT(DISTINCT bt.term) = :term_count
+LIMIT :candidate_limit;
+</code></pre>
+<p>The worker then verifies an exact normalized name with Unicode-aware boundaries
+in stored <code>body_text</code>, excluding fenced/inline code and wiki-link spans recorded
+by the body scan. SQL term matching is only a candidate accelerator. Results are
+therefore mentions, not arbitrary substrings such as <code>art</code> inside <code>partial</code>.
+Candidate and returned-result limits are mandatory.</p>
+<h2 id="phased-delivery-as-task-rows"><a class="heading-anchor" href="#phased-delivery-as-task-rows">Phased delivery as task rows</a></h2>
+<p>These names are intended to become rows in <code>SHARED_TASKS.md</code> before
+implementation; this architecture document does not assign their owner or
+status.</p>
+<ol>
+<li><strong>T-041A — Note metadata index and first renderer board.</strong> Move the pure
+frontmatter/DB read models to shared code, add the worker-owned SQLite store,
+validation/rebuild, watcher reconciliation, status/progress IPC, and index
+notes, frontmatter, tags, headings, links, terms, and checkboxes. Ship a
+renderer kanban for notes with <code>status:</code> and replace at least one existing
+renderer full-note scan (tag collection is the smallest candidate). This is
+useful alone and must meet the cold/warm and corruption gates.</li>
+<li><strong>T-041B — Unified task and project queries.</strong> Add task-note, checkbox, and
+<code>.db</code> task/project projections, deterministic identities, link resolution,
+no-project/no-active-task, due, and stale queries, plus renderer dashboards.</li>
+<li><strong>T-041C — Backlinks and unlinked mentions.</strong> Add the exact body scanner,
+term candidate index, resolution diagnostics, backlink/mention renderer UI,
+and adversarial limits. It reuses the store and query envelope; it does not
+add a view route.</li>
+<li><strong>T-041D — Scale and recovery gate.</strong> Run packaged cross-platform 5,000- and
+10,000-note benchmarks, burst/external-edit/rename tests, memory and export
+measurements, corrupt/truncated/schema-mismatch recovery, and prove the
+documented budgets. Corrections remain in this phase; declaring the budgets
+“unverified but acceptable” is not completion.</li>
+</ol>
+<p>T-041A deliberately ships first because frontmatter status/tag queries are
+valuable without task unification or mention detection. Security, atomicity,
+recovery, progress reporting, and watcher reconciliation are foundation work,
+not later hardening.</p>
+<h2 id="required-implementation-tests"><a class="heading-anchor" href="#required-implementation-tests">Required implementation tests</a></h2>
+<p>No tests are added by this design-only task. Implementation needs at least:</p>
+<ul>
+<li>Parser contract tests proving main and renderer share exactly the current
+valid/invalid frontmatter behavior, BOM/EOL handling, limits, dangerous-key
+removal, and byte-identical source preservation; shared <code>.db</code> v1/v2 parsing,
+2-MiB limit, unknown fields, and malformed input.</li>
+<li>Body scanner tests for fenced and inline code, headings, inline/frontmatter
+tags, wiki-links, aliases, duplicate checkbox text, checked variants,
+Unicode boundaries, false substring mentions, and input/work limits.</li>
+<li>Storage/query tests for every SQL result above, typed frontmatter values,
+invalid due dates, ambiguous projects, duplicate names, completion precedence,
+<code>.db</code> table-recognition rules, cascade deletion, bound limits, and no raw SQL
+or dynamic identifier input.</li>
+<li>Recovery tests for empty/missing/truncated/random-byte indexes, failed quick
+check, wrong schema/parser/root, incomplete build, leftover temp export,
+failed export, crash-before-export simulation, and delete/rebuild without any
+workspace write.</li>
+<li>Watcher integration tests for add, burst change, atomic save, external edit,
+unlink, rename-as-unlink/add, invalid-to-valid transition, edit during cold
+scan, workspace switch, queued-event replay, and no stale old projection.</li>
+<li>Security tests showing a sandboxed view has no IPC method or index route, the
+index path fails workspace resolution, and existing view routes still filter
+mixed allowed/forbidden paths before responding.</li>
+<li>Packaged worker/WASM startup tests and measured cold/warm time, peak WASM plus
+export memory, disk size, and event-loop delay for generated 5,000- and
+10,000-note workspaces on all release platforms.</li>
+</ul>
+<h2 id="required-end-to-end-scenario"><a class="heading-anchor" href="#required-end-to-end-scenario">Required end-to-end scenario</a></h2>
+<p>This scenario is specified for implementation; it was not executed here.</p>
+<ol>
+<li>With no cache for the workspace, the user opens a 5,000-note workspace.
+Neuron starts the watcher, waits for its ready boundary, starts a separate
+cold database in the metadata worker, and immediately opens the normal
+workspace UI. <code>metadataIndex.status()</code> reports <code>building</code>, indexed/discovered
+counts, and zero complete generation. The dashboard shows “Building index”
+with progress and does not present a partial zero-task result as truth.</li>
+<li>The worker enumerates only <code>.md</code>, <code>.mdx</code>, and <code>.db</code>, parses stable file
+snapshots in bounded batches, records invalid/oversized counts, and commits
+one complete generation. It replays watcher events that arrived during the
+scan, marks the generation ready, exports atomically under the workspace hash,
+and emits one generation-changed notification. The dashboard issues its
+closed query and shows results from that generation.</li>
+<li>The user creates <code>inbox.md</code> containing only
+<code>- [ ] Call the supplier\n</code>. The file write remains successful even if the
+index is unavailable. The known internal path and/or chokidar <code>add</code> event is
+queued and deduplicated. The worker verifies stable bytes, parses one
+unchecked checkbox, creates a checkbox task, sets
+<code>has_task_metadata = 0</code>, and commits that file projection in one transaction.</li>
+<li>After the generation notification, the dashboard re-runs “unchecked TODOs
+without task metadata.” <code>inbox.md</code> appears once with count 1. It also appears
+as an active task with no project and no due date. It does not appear in the
+note-status kanban because it has no <code>status:</code>. Reloading the app loads the
+coherent snapshot, reconciles stats, and returns the same result without a
+full content scan.</li>
+</ol>
+<h2 id="what-this-does-not-solve-and-what-it-costs"><a class="heading-anchor" href="#what-this-does-not-solve-and-what-it-costs">What this does not solve and what it costs</a></h2>
+<p>This index does not write metadata, provide task editing, choose a canonical
+task workflow, enforce <code>.db</code> relations, make wiki-links navigable, assign
+durable checkbox ids, preserve entity ids across file renames, infer task tables
+from arbitrary schemas, or provide row-level <code>.db</code> modification time. It is not
+full Markdown/MDX compilation, a universal search engine, semantic/embedding
+search, OCR, attachment indexing, sync, or a backup. The write journal remains
+the recovery feature; the index is disposable.</p>
+<p>It also does not expose cross-workspace data or answer view queries. Only the
+active workspace worker is queryable by trusted IPC; switching workspaces
+terminates it and changes the store key.</p>
+<p>Disk cost is the SQLite structure plus duplicated note bodies, terms, and
+metadata. Memory cost is at least the whole SQLite image in WASM plus SQLite
+working pages and, during export, another image-sized byte array. A reasonable
+planning estimate is source body bytes plus relational/index overhead on disk
+and again in memory, but no multiplier is asserted until T-041D measures real
+fixtures. The first cold scan costs one read and parse of every participating
+file; the user waits for cross-file dashboards, not for the ability to open and
+edit a note.</p>
+<h2 id="unverified-facts-and-implementation-gates"><a class="heading-anchor" href="#unverified-facts-and-implementation-gates">Unverified facts and implementation gates</a></h2>
+<ul>
+<li>The installed <code>sql.js</code> build's FTS/JSON compile options and quick-check
+behavior were not executable because this worktree has no installed module.
+Optional extensions are not used; integrity behavior still needs a test.</li>
+<li><code>sql.js</code> worker-thread WASM location in packaged Windows, macOS, and Linux
+builds is unverified even though main-process loading and WASM unpacking are
+present in source.</li>
+<li>The 50-ms event-loop, 2-second warm, and 10-second cold budgets, peak memory,
+index-to-source size ratio, and export time are targets, not measurements.</li>
+<li>Exact chokidar event sequences for Neuron's atomic rename and external editor
+saves vary by OS and editor. The design relies on reconciliation plus
+final-state reads, not a particular rename event; the matrix still needs to be
+observed.</li>
+<li>Same-size external changes that preserve filesystem mtime are not detected by
+warm stat reconciliation. A full rebuild detects them. Whether a periodic
+content audit is worth its I/O requires measurement rather than an assertion.</li>
+<li>Current wiki-link navigation, alias, and heading-fragment resolution semantics
+are not implemented. The index stores enough raw information but does not
+claim those product decisions.</li>
+</ul>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

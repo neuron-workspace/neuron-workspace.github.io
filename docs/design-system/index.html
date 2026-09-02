@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Reference Neuron’s palette, typography, spacing, components, motion, and accessibility rules." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Neuron Design System — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Neuron Design System</h1>
+        <p class="lede">Reference Neuron’s palette, typography, spacing, components, motion, and accessibility rules.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#direction">Direction</a></li><li><a href="#color">Color</a></li><li><a href="#typography">Typography</a></li><li><a href="#geometry-and-spacing">Geometry and spacing</a></li><li><a href="#components">Components</a></li><li><a href="#interaction-and-motion">Interaction and motion</a></li><li><a href="#accessibility">Accessibility</a></li></ul></details><h2 id="direction"><a class="heading-anchor" href="#direction">Direction</a></h2>
+<p>Neuron is a desktop writing instrument used in focused, often dim indoor environments. Its restrained graphite surfaces reduce glare while a mineral-green accent marks selection, focus, and successful local state. The visual language is sharp, quiet, and tactile without pretending to be a terminal.</p>
+<h2 id="color"><a class="heading-anchor" href="#color">Color</a></h2>
+<p><code>src/renderer/lib/theme.ts</code> is the canonical runtime palette model. It applies core CSS tokens for four presets: <strong>Graphite</strong> (default), <strong>Void</strong>, <strong>Nord</strong>, and <strong>Light</strong>. <code>src/renderer/index.css</code> duplicates Graphite as the initial <code>:root</code> palette so startup never flashes an unthemed surface.</p>
+<p>Core roles are canvas, navigation, surface, hover surface, divider, three ink levels, accent, positive, danger, warning, and info. Accent is reserved for primary actions, selection, focus, and active state. Semantic colors always include an icon or label.</p>
+<p>Markdown rendering uses a separate role layer derived from the active preset: <code>--md-heading</code>, <code>--md-text</code>, <code>--md-bold</code>, <code>--md-link</code>, <code>--md-code</code>, <code>--md-code-bg</code>, <code>--md-quote</code>, and <code>--md-quote-border</code>. User overrides apply to both live preview and reading view and persist under the <code>appearance</code> settings key.</p>
+<h2 id="typography"><a class="heading-anchor" href="#typography">Typography</a></h2>
+<ul>
+<li>UI: system sans stack, with medium and semibold weights carrying hierarchy.</li>
+<li>Source, filenames, counts, and graph labels: system monospace stack with tabular figures.</li>
+<li>Base UI text: 13px; compact metadata: 11px; workspace title: 15px.</li>
+<li>Product headings use a fixed scale and no display typography.</li>
+<li>Prose preview is capped near 70ch with comfortable line height.</li>
+<li>Labels use sentence case. Uppercase is limited to genuinely abbreviated status text.</li>
+</ul>
+<h2 id="geometry-and-spacing"><a class="heading-anchor" href="#geometry-and-spacing">Geometry and spacing</a></h2>
+<ul>
+<li>Desktop-only minimum viewport: 960 × 640; default Electron window: 1280 × 820.</li>
+<li>Left navigation rail: 272px.</li>
+<li>Editor and preview share remaining width equally, with a single divider.</li>
+<li>Spacing follows a 4px base: 4, 8, 12, 16, 20, 24, 32.</li>
+<li>Controls use 6px corners; panels remain square and are separated by dividers, not cards.</li>
+<li>No nested cards, ornamental shadows, glass effects, gradient text, or accent side stripes.</li>
+</ul>
+<h2 id="components"><a class="heading-anchor" href="#components">Components</a></h2>
+<h3 id="workspace-navigation"><a class="heading-anchor" href="#workspace-navigation">Workspace navigation</a></h3>
+<p>Contains app identity, Editor/Graph mode switch, file search, note creation, file list, and tag filters. Selected rows use a full low-chroma accent surface plus icon and text changes. Destructive actions appear on row focus or hover and require a second explicit action.</p>
+<h3 id="pane-headers"><a class="heading-anchor" href="#pane-headers">Pane headers</a></h3>
+<p>Each pane header names its role on the left and shows useful state on the right. Source shows the active path and save state; preview shows MDX render status. Headers are compact and visually subordinate to content.</p>
+<h3 id="editor"><a class="heading-anchor" href="#editor">Editor</a></h3>
+<p>CodeMirror uses the same canvas and divider tokens as the shell. Active line, selection, gutters, and focus are perceptible without bright blocks. Saving feedback is textual and does not interrupt typing.</p>
+<h3 id="preview"><a class="heading-anchor" href="#preview">Preview</a></h3>
+<p>Rendered prose prioritizes reading. Custom MDX components use a single surface boundary. Callouts use full subtle borders and state icons, never colored side stripes.</p>
+<p>Markdown tables use a quiet bordered frame, a distinct header surface, compact cells, alignment from the divider row, and horizontal overflow instead of compressing content below readability.</p>
+<h3 id="plugin-peeks"><a class="heading-anchor" href="#plugin-peeks">Plugin peeks</a></h3>
+<p>Plugins register panels for either the right-side peek or bottom peek. Side views suit assistants, calendars, and inspectors; bottom views suit terminals, logs, and diagnostics. Both regions are independently collapsible, use the same pane-header tabs, and keep the central editor mounted while open.</p>
+<h3 id="graph"><a class="heading-anchor" href="#graph">Graph</a></h3>
+<p>The graph is a workspace, not a dashboard card. Nodes are stable between selection changes. Search results occupy a contextual inspector on the right only when a query exists.</p>
+<h2 id="interaction-and-motion"><a class="heading-anchor" href="#interaction-and-motion">Interaction and motion</a></h2>
+<ul>
+<li>Hover/focus transitions: 140–180ms using <code>cubic-bezier(0.16, 1, 0.3, 1)</code>.</li>
+<li>Pressed controls translate by 1px; no decorative scale or page-load choreography.</li>
+<li>Focus rings are 2px and offset from the control.</li>
+<li><code>prefers-reduced-motion: reduce</code> removes nonessential transitions.</li>
+<li>Empty, saving, saved, parsing, parse-error, no-results, and file-operation-error states use direct copy.</li>
+</ul>
+<h2 id="accessibility"><a class="heading-anchor" href="#accessibility">Accessibility</a></h2>
+<ul>
+<li>WCAG 2.2 AA contrast for text and controls.</li>
+<li>Minimum interactive target height: 30px in dense tool areas, 36px for primary actions.</li>
+<li>Icon-only controls require <code>aria-label</code> and a visible tooltip through <code>title</code>.</li>
+<li>Mode controls expose pressed state; active notes expose current selection.</li>
+<li>Keyboard focus must never be removed without an equivalent replacement.</li>
+</ul>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

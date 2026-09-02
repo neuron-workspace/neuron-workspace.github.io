@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Understand databases, canvases, folder mini-apps, and their security boundaries." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>File surfaces: architecture and security model — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>File surfaces: architecture and security model</h1>
+        <p class="lede">Understand databases, canvases, folder mini-apps, and their security boundaries.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#embedding-a-database-in-mdx-dbview">Embedding a database in MDX (&lt;DbView&gt;)</a></li><li><a href="#folder-mini-apps-indexhtml-neuronappjson">Folder mini-apps (index.html + neuron.app.json)</a></li><li><a href="#json-canvas-canvas">JSON Canvas (.canvas)</a></li><li><a href="#rendering-pipeline">Rendering pipeline</a></li><li><a href="#error-isolation">Error isolation</a></li><li><a href="#security-model">Security model</a></li><li><a href="#known-limitations">Known limitations</a></li></ul></details><p>Neuron renders three kinds of user-authored surface documents, all stored as
+plain files in the workspace and all editable by hand (every surface has a
+Preview/Source toggle):</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>File</th>
+<th>Format</th>
+<th>Renders as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.html</code></td>
+<td>HTML + optional htmx attributes, inline CSS, and JavaScript</td>
+<td>An isolated, offline HTML view tab (see <a href="/docs/htmx-views/">htmx-views.md</a>)</td>
+</tr>
+<tr>
+<td><code>.db</code></td>
+<td>JSON (schema + view state + rows)</td>
+<td>Notion-style database (table / kanban board / card gallery)</td>
+</tr>
+<tr>
+<td><code>.canvas</code></td>
+<td><a href="https://jsoncanvas.org">JSON Canvas</a> (Obsidian-compatible)</td>
+<td>Infinite spatial board</td>
+</tr>
+<tr>
+<td><code>index.html</code> (+ <code>neuron.app.json</code>)</td>
+<td>HTML view + manifest inside a folder</td>
+<td>A <strong>folder mini-app</strong> — the folder renders as one app instead of a file listing</td>
+</tr>
+<tr>
+<td><code>.neuron/layout.json</code></td>
+<td>JSON layout tree</td>
+<td>The workspace shell layout</td>
+</tr>
+</tbody>
+</table></div>
+<p>HTMX views have their own architecture and threat model, documented in
+<a href="/docs/htmx-views/">htmx-views.md</a>. This document covers the in-renderer surfaces
+(<code>.db</code>, <code>.canvas</code>, the shell layout).</p>
+<h2 id="embedding-a-database-in-mdx-dbview"><a class="heading-anchor" href="#embedding-a-database-in-mdx-dbview">Embedding a database in MDX (<code>&lt;DbView&gt;</code>)</a></h2>
+<p>Notes render a <code>.db</code> inline with <code>&lt;DbView path=&quot;@Planner.db&quot; table=&quot;tasks&quot; view=&quot;board&quot; /&gt;</code>.
+<code>path</code> is workspace-root-relative, prefixed with <code>@</code>; <code>view</code> is <code>table</code>
+(default), <code>board</code>, or <code>card</code>. The component reads the file over the same
+<code>notes:read</code> bridge as the DbSurface editor and re-reads on <code>notes:changed</code>, so
+the embed tracks external edits live. It is <strong>read-only</strong> — the same URL
+allowlist and the invalid/missing states apply; editing happens in the <code>.db</code>
+tab. Code: <code>src/renderer/components/DbView.tsx</code>, wired into the MDX parser in
+<code>MDXPreview.tsx</code> alongside <code>&lt;Badge&gt;</code>/<code>&lt;Callout&gt;</code>.</p>
+<blockquote>
+<p><strong>Removed:</strong> the earlier <code>.vw</code> block-view dashboards were replaced by HTMX
+views. Existing <code>.vw</code> files are left untouched on disk but are no longer
+listed or rendered; see the migration notes in
+<code>examples/demo-repo/building-htmx-views.mdx</code>.</p>
+</blockquote>
+<h2 id="folder-mini-apps-indexhtml-neuronappjson"><a class="heading-anchor" href="#folder-mini-apps-indexhtml-neuronappjson">Folder mini-apps (<code>index.html</code> + <code>neuron.app.json</code>)</a></h2>
+<p>Any non-root folder that contains a <code>neuron.app.json</code> <strong>becomes a mini-app</strong>:
+the sidebar collapses the folder into a single app entry instead of listing its
+contents, and opening it renders the folder's <code>index.html</code> file. <code>index.html</code> is
+an HTML view and <code>neuron.app.json</code> is its
+manifest (the same schema as a view manifest — <code>name</code>, <code>permissions</code>,
+<code>allowedReadPaths</code>/<code>allowedWritePaths</code>, <code>networkPolicy</code>). A manifest with no
+<code>permissions</code> grants nothing, so a read-only app must list its read caps.</p>
+<p>Mechanically a folder app reuses the entire HTMX-view pipeline (loopback server,
+per-session token, sandboxed <code>&lt;webview&gt;</code>, capability-checked API) — it is just a
+view whose entry point and manifest live inside the folder rather than as a
+standalone <code>.html</code> + <code>.neuron/manifests/</code> pair. The workspace root itself is
+never treated as an app. See <a href="/docs/htmx-views/">htmx-views.md</a> for the view format,
+API, permissions, and threat model; wiring is <code>isViewPath</code>/<code>manifestPathFor</code> in
+<code>src/main/htmx/index.ts</code> and the sidebar's app-folder collapse in
+<code>src/renderer/components/Sidebar.tsx</code>.</p>
+<h2 id="json-canvas-canvas"><a class="heading-anchor" href="#json-canvas-canvas">JSON Canvas (<code>.canvas</code>)</a></h2>
+<p>Neuron's canvas is spec-compatible with <a href="https://jsoncanvas.org">jsoncanvas.org</a>
+(Obsidian's format). Architecture, feature matrix, and compatibility contract:
+<a href="https://github.com/neuron-workspace/Neuron/blob/main/docs/plans/json-canvas-enhancements.md">json-canvas-enhancements.md</a>.
+Implementation code:
+<code>src/renderer/canvas/</code> (model, history, markdown) + <code>surfaces/CanvasSurface.tsx</code>.</p>
+<p>Capabilities: pan/zoom (wheel, zoom controls, fit all/selection), text cards
+with safe Markdown rendering, file cards (with missing-file badges), link and
+group nodes, edge creation by dragging connector dots, edge labels, arrow
+direction controls (default/both/none — spec <code>fromEnd</code>/<code>toEnd</code>), multi-select
+(Shift-click, Shift-drag marquee), batch move/color/delete, align and
+distribute, bring-to-front/send-to-back (spec array order = z), copy/cut/
+paste/duplicate as standard JSON Canvas fragments (pasteable across canvases
+and tools), snap-to-grid, undo/redo (<code>Ctrl+Z</code> / <code>Ctrl+Shift+Z</code>), context menus
+on background/nodes/edges, and keyboard editing (arrows nudge, <code>Shift</code> for
+bigger steps, <code>Ctrl+A/C/X/V/D</code>, <code>Delete</code>, <code>Escape</code>).</p>
+<p>Compatibility guarantees: unknown top-level keys, unknown node/edge
+properties, and unknown node <em>types</em> survive load→edit→save (nodes of foreign
+types render as read-only &quot;preserved as-is&quot; cards). Standard fields are never
+renamed or defaulted-into-existence; serialization is tab-indented like
+Obsidian's. Recoverable parse problems (duplicate ids, bad geometry, dangling
+edges) load with a warnings badge; unreadable files show the error and are
+never rewritten. Deferred work is tracked in <code>.claude/json-canvas-backlog.md</code>.</p>
+<p><strong>Node styling</strong> (palette button or right-click → Style…) uses the versioned,
+namespaced <code>neuron</code> extension — shape, border style/width, text alignment,
+font size, opacity, and presets (idea/question/warning/decision):</p>
+<pre><code class="language-json">{ &quot;id&quot;: &quot;n1&quot;, &quot;type&quot;: &quot;text&quot;, &quot;x&quot;: 0, &quot;y&quot;: 0, &quot;width&quot;: 260, &quot;height&quot;: 140,
+  &quot;text&quot;: &quot;# Idea&quot;, &quot;color&quot;: &quot;3&quot;,
+  &quot;neuron&quot;: { &quot;version&quot;: 1, &quot;style&quot;: { &quot;shape&quot;: &quot;rounded&quot;, &quot;borderStyle&quot;: &quot;dashed&quot;, &quot;preset&quot;: &quot;idea&quot; } } }
+</code></pre>
+<p>A node only gains a <code>neuron</code> object when a nonstandard property is changed,
+and loses it again when the last one is cleared. Other JSON Canvas apps
+simply ignore the extension and still show the standard card — presets write
+the standard <code>color</code> field too, so the look degrades gracefully. Extensions
+written by a newer Neuron (<code>version</code> &gt; 1) are preserved untouched and never
+edited by this version.</p>
+<h2 id="rendering-pipeline"><a class="heading-anchor" href="#rendering-pipeline">Rendering pipeline</a></h2>
+<ol>
+<li>The renderer reads the file over the preload bridge (<code>notes:read</code>); the file
+watcher (<code>notes:changed</code>) streams external edits in live.</li>
+<li>Each surface parses its document defensively: size budget first, then
+format-specific validation. Invalid documents render an error state with a
+pointer to Source mode — they never crash and are never &quot;fixed&quot; silently.</li>
+<li>Every write goes back through the bridge (<code>notes:write</code>), which performs an
+<strong>atomic write</strong> (temp file + rename) in the main process.</li>
+</ol>
+<h2 id="error-isolation"><a class="heading-anchor" href="#error-isolation">Error isolation</a></h2>
+<p><code>SurfaceBoundary</code> wraps every open surface: a crashing view shows an inline
+error and leaves the app shell, tabs, and Source mode fully usable.</p>
+<h2 id="security-model"><a class="heading-anchor" href="#security-model">Security model</a></h2>
+<p>The renderer runs with context isolation on and Node integration off; surfaces
+can only reach the world through the named preload methods. Within that,
+surface documents are treated as <strong>untrusted input</strong> — synced and shared
+workspaces mean the current user may not have written them.</p>
+<p>Enforced by <code>src/renderer/lib/view-security.ts</code> (checked by
+<code>node tools/view-security.test.mjs</code>):</p>
+<ul>
+<li><strong>URL allowlist</strong> — <code>href</code>/<code>src</code> in <code>.db</code> link cells and <code>.canvas</code> link
+cards render only <code>http:</code>, <code>https:</code>, or <code>mailto:</code> URLs (≤ 2048 chars).
+<code>javascript:</code>, <code>file:</code>, <code>data:</code>, scheme-less, and protocol-relative URLs are
+dropped. Links open externally (<code>target=&quot;_blank&quot;</code> + <code>rel=&quot;noreferrer&quot;</code>).</li>
+<li><strong>Document budget</strong> — <code>.db</code> and <code>.canvas</code> refuse to parse documents over
+2 MB instead of freezing the renderer.</li>
+</ul>
+<p>Privileged operations are capability-shaped IPC handlers in the main process:
+<code>views:file</code> reads workspace images for <code>.canvas</code> file nodes (path resolved
+inside the active workspace only); <code>notes:write</code> performs workspace-confined
+atomic writes. Surfaces cannot name arbitrary IPC channels, shell commands, or
+filesystem paths outside the workspace.</p>
+<h2 id="known-limitations"><a class="heading-anchor" href="#known-limitations">Known limitations</a></h2>
+<ul>
+<li>Table views are not virtualized; documents are capped at 2 MB, which keeps
+row counts in the low thousands. Add virtualization when a real workspace
+hits the ceiling.</li>
+<li>Board/gallery cards are read-only summaries; editing happens in table mode
+or by dragging cards between columns.</li>
+</ul>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

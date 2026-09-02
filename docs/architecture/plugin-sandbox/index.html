@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Understand the proposed third-party plugin boundary, capabilities, approval flow, and tradeoffs." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Sandboxed third-party plugins — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Sandboxed third-party plugins</h1>
+        <p class="lede">Understand the proposed third-party plugin boundary, capabilities, approval flow, and tradeoffs.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#decision">Decision</a></li><li><a href="#execution-boundary">Execution boundary</a></li><li><a href="#available-capabilities">Available capabilities</a></li><li><a href="#installation-approval-and-uninstall">Installation, approval, and uninstall</a></li><li><a href="#functional-cost-versus-built-ins">Functional cost versus built-ins</a></li><li><a href="#what-remains-first-party">What remains first-party</a></li><li><a href="#worked-example">Worked example</a></li><li><a href="#explicit-non-solutions-and-follow-up-work">Explicit non-solutions and follow-up work</a></li></ul></details><p>Status: accepted design and minimal workspace implementation for T-030.</p>
+<h2 id="decision"><a class="heading-anchor" href="#decision">Decision</a></h2>
+<p>A third-party plugin is a workspace folder containing a plain HTML entry point:</p>
+<pre><code class="language-text">plugins/
+  &lt;plugin-folder&gt;/
+    index.html
+    neuron.app.json
+</code></pre>
+<p>The <code>plugins/</code> location is the discovery convention used by the Plugins page.
+The folder itself is an existing Neuron folder mini-app: <code>index.html</code> is the
+entry, and the co-located <code>neuron.app.json</code> is exactly the existing view
+manifest. There is no plugin-only manifest, loader, JavaScript module format,
+or second sandbox. A folder mini-app outside <code>plugins/</code> remains a normal view
+and is not listed as an installed plugin.</p>
+<p>The manifest accepts the existing view fields and validation rules:</p>
+<pre><code class="language-json">{
+  &quot;id&quot;: &quot;example.recent-notes&quot;,
+  &quot;name&quot;: &quot;Recent notes&quot;,
+  &quot;version&quot;: &quot;1.0.0&quot;,
+  &quot;description&quot;: &quot;Shows recently edited notes.&quot;,
+  &quot;permissions&quot;: [&quot;notes.read&quot;],
+  &quot;allowedReadPaths&quot;: [&quot;**/*.md&quot;, &quot;**/*.mdx&quot;],
+  &quot;allowedWritePaths&quot;: [],
+  &quot;networkPolicy&quot;: &quot;none&quot;,
+  &quot;themeMode&quot;: &quot;system&quot;
+}
+</code></pre>
+<p><code>id</code>, <code>name</code>, <code>version</code>, <code>description</code>, <code>icon</code>, and <code>themeMode</code> are optional in
+the view format. <code>index.html</code>, <code>permissions</code>, path policies, and
+<code>networkPolicy: &quot;none&quot;</code> define the security-relevant behavior. Unknown fields
+and unknown permissions are rejected by the existing validator. The Plugins
+page may display manifest metadata, but it treats it as an untrusted claim: the
+workspace-relative entry path is shown as the stable identity, and opening the
+entry makes the main process validate and hash the manifest again.</p>
+<h2 id="execution-boundary"><a class="heading-anchor" href="#execution-boundary">Execution boundary</a></h2>
+<p>Opening a listed plugin uses the ordinary HTML surface. The main process creates
+a capability-scoped session and serves the document to a sandboxed webview with:</p>
+<ul>
+<li>no Node, preload, <code>ipcRenderer</code>, or <code>process</code>;</li>
+<li>a per-session, in-memory webview partition;</li>
+<li><code>default-src 'none'</code>, <code>connect-src 'self'</code>, and no remote images, frames,
+objects, forms, scripts, or styles;</li>
+<li>only the loopback view API at the session's own origin;</li>
+<li>a checked capability on every API route and the existing path policy on file
+and note enumeration, reads, writes, creates, deletes, and searches;</li>
+<li>resource ceilings and hash-based conflict checks already used by views.</li>
+</ul>
+<p>Inline scripts are allowed under D31. That does not widen their authority:
+scripts still have no Electron bridge and cannot connect away from the local
+view origin. This design must not add a blanket filesystem grant, widen
+<code>connect-src</code>, bypass the path policy, or expose a built-in runtime object to the
+webview.</p>
+<p>The trusted Plugins page uses the existing app bridge only to select the
+plugin's <code>index.html</code>. It does not activate the folder in the built-in plugin
+host and passes no <code>HostRuntime</code> into the webview.</p>
+<h2 id="available-capabilities"><a class="heading-anchor" href="#available-capabilities">Available capabilities</a></h2>
+<p>Sandboxed plugins may request only the existing view capabilities:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Access added</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>workspace.files.read</code></td>
+<td>Read one allowed workspace file through the content API.</td>
+</tr>
+<tr>
+<td><code>workspace.directories.list</code></td>
+<td>Enumerate files allowed by the read path policy.</td>
+</tr>
+<tr>
+<td><code>workspace.search</code></td>
+<td>Search allowed Markdown and MDX files.</td>
+</tr>
+<tr>
+<td><code>notes.read</code></td>
+<td>Read note titles, tags, paths, modification times, and the note content needed to derive that metadata, within the read policy.</td>
+</tr>
+<tr>
+<td><code>tags.read</code></td>
+<td>Derive tags from notes within the read policy.</td>
+</tr>
+<tr>
+<td><code>variables.read</code></td>
+<td>Read declared values from <code>.neuron/variables.json</code>.</td>
+</tr>
+<tr>
+<td><code>workspace.files.write</code></td>
+<td>Replace an existing file in the write policy, with conflict checking and journaling.</td>
+</tr>
+<tr>
+<td><code>workspace.files.create</code></td>
+<td>Create a file in the write policy.</td>
+</tr>
+<tr>
+<td><code>workspace.files.delete</code></td>
+<td>Delete a file in the write policy, with journaling.</td>
+</tr>
+<tr>
+<td><code>variables.write</code></td>
+<td>Update only variables declared writable.</td>
+</tr>
+</tbody>
+</table></div>
+<p>No new capability is needed. The APIs already cover the file, note, tag,
+search, and variable operations a sandboxed HTML app can perform. Capabilities
+remain independent: <code>notes.read</code> does not imply search, and read does not imply
+write. <code>allowedReadPaths</code> and <code>allowedWritePaths</code> narrow the relevant routes;
+authors should always declare explicit least-privilege patterns. In the current
+view implementation an omitted or empty read pattern list falls back to <code>**</code>,
+so an app requesting a read-like capability must not rely on omission as a
+restriction.</p>
+<p>There is deliberately no grant for arbitrary network access, Electron IPC,
+settings, the recovery journal, host storage, browser cookies, AI provider
+credentials, or PTY/terminal execution. Those are qualitatively greater powers,
+not alternate spellings of a file or view operation.</p>
+<h2 id="installation-approval-and-uninstall"><a class="heading-anchor" href="#installation-approval-and-uninstall">Installation, approval, and uninstall</a></h2>
+<p>Neuron does not establish provenance. A plugin folder may come from a stranger,
+a downloaded archive, Git, shared storage, or the user. The minimal install is
+an explicit filesystem action: the user copies the folder to
+<code>&lt;workspace&gt;/plugins/&lt;plugin-folder&gt;/</code>. There is no marketplace, downloader,
+signature, package execution, install script, or global plugin directory.</p>
+<p>The Plugins page reads JSON metadata to list folders that have both
+<code>neuron.app.json</code> and <code>index.html</code>; listing does not load or execute the HTML.
+Before opening, the row shows the real workspace-relative entry path and the
+requested capability names. Manifest names and descriptions are author claims,
+not trust signals.</p>
+<p>On open, the main process validates the manifest. A plugin requesting any
+capability does not receive a webview session yet. The existing prompt names the
+real entry path (<code>“plugins/&lt;folder&gt;/index.html” requests workspace access</code>),
+describes each requested capability, warns the user to trust the file and its
+source, and offers <code>Allow once</code> or <code>Allow for this view</code>. The prompt wording is
+part of the security boundary: it must continue to name the path and concrete
+authority, never just the self-declared plugin name or a vague “safe” badge.
+The approval is bound to the exact manifest hash, so any manifest edit asks
+again. A once approval lives only in the current Neuron process; an always
+approval is stored per workspace and entry path.</p>
+<p>If the user refuses by closing or leaving the prompt, no session or webview is
+created, so plugin HTML and scripts do not run and no capability is granted. A
+zero-capability plugin opens after the user presses <code>Open isolated app</code> without
+a second prompt; it can render and run sandboxed script but cannot read the
+workspace or reach Node or the network.</p>
+<p>The current minimal path has no uninstall button. Removing the plugin folder is
+the uninstall operation and removes its executable HTML and manifest. Any
+stored approval becomes inert because the entry no longer exists;
+it cannot authorize another manifest hash. A future uninstall action should
+first call the existing <code>htmxViews.resetApproval(entry)</code> operation and then
+remove the folder, so the inert approval is removed as well. It must show the
+exact folder it will delete and must not delete data outside that folder.</p>
+<h2 id="functional-cost-versus-built-ins"><a class="heading-anchor" href="#functional-cost-versus-built-ins">Functional cost versus built-ins</a></h2>
+<p>This boundary is a real product trade-off. A built-in plugin is trusted React
+code running in the renderer. It can register native side or bottom panels,
+commands, and MDX components; share shell components and state; react directly
+to the active note; open or create notes; use namespaced settings storage; and
+reach the privileged AI, network, and terminal bridges.</p>
+<p>A sandboxed plugin renders one HTML app in a webview. It cannot contribute a
+React panel, command-palette action, MDX component, toolbar control, native drag
+target, or shell-level keyboard shortcut. It does not receive live renderer
+state or component-library objects, and its focus, accessibility tree, styling,
+and lifecycle cross a webview boundary. It can approximate some workflows with
+the view API and Neuron's injected HTML styles, but it will not feel as tightly
+integrated and cannot perform tasks for which no least-privilege view API exists.
+That loss is intentional. Revisit SES only if untrusted code must render native
+React UI inside the main renderer, as D33 specifies.</p>
+<h2 id="what-remains-first-party"><a class="heading-anchor" href="#what-remains-first-party">What remains first-party</a></h2>
+<p>Built-in plugins remain first-party, in-renderer modules. In particular, AI
+providers and the terminal remain first-party. AI credentials and provider
+bridges must not be exposed to sandboxed plugins. The terminal can execute
+arbitrary commands in the workspace and therefore cannot be represented as a
+sandbox capability. Neither privilege is available indirectly through the view
+API.</p>
+<h2 id="worked-example"><a class="heading-anchor" href="#worked-example">Worked example</a></h2>
+<p><code>examples/demo-repo/Snake/</code> is a folder app on this path. Its manifest requests
+only <code>variables.read</code> and <code>variables.write</code>, with both <code>allowedReadPaths</code> and
+<code>allowedWritePaths</code> empty, so a document running arbitrary JavaScript in the
+sandbox cannot reach a single note -- the one thing it persists is a high score
+in a declared workspace variable. It requests no file, search, tag, terminal, AI
+or network authority and contains no remote asset.</p>
+<p>Neuron discovers the folder from its <code>neuron.app.json</code> and opens
+<code>Snake/index.html</code>. The standard HTML surface then owns approval, session
+creation, rendering, and teardown. No main-process change is required for this
+minimal path.</p>
+<p>The demo workspace previously carried a <code>plugins/recent-notes/</code> example on the
+same path; it was removed when the workspace was made generic, and Snake covers
+the same ground with a tighter manifest.</p>
+<h2 id="explicit-non-solutions-and-follow-up-work"><a class="heading-anchor" href="#explicit-non-solutions-and-follow-up-work">Explicit non-solutions and follow-up work</a></h2>
+<p>This design contains third-party plugin code; it does not make every extension
+surface trusted or harmless:</p>
+<ul>
+<li>Built-in plugins are still unsandboxed first-party renderer code. Auditing and
+narrowing that host remains T-021 work.</li>
+<li>The PTY still starts a real shell with the workspace as its current directory
+and inherits the full process environment. This design does not contain it.</li>
+<li>An approved plugin can intentionally or accidentally read or mutate everything
+covered by its grants and path patterns. The journal improves recovery but is
+not authorization and is never exposed to the plugin.</li>
+<li>There is no signature, publisher identity, update mechanism, vulnerability
+revocation, marketplace review, dependency scan, or safe archive extraction.</li>
+<li>This reuses the Chromium/webview boundary; it does not defend against a
+Chromium or Electron sandbox escape.</li>
+<li>The Plugins page performs lightweight workspace discovery. A production
+installer/uninstaller would require a separate main-process task for validated
+archive extraction or folder import, collision handling, atomic installation,
+approval cleanup, and recoverable deletion. That task must preserve the same
+manifest validator and view sandbox rather than introduce a second loader.</li>
+</ul>
+<p>Therefore T-030 supplies a sandboxed path for untrusted third-party HTML apps,
+but it does not close the broader T-021 risk around privileged built-ins and the
+PTY.</p>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

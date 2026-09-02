@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Extend Neuron with built-in commands, panels, runtime capabilities, and MDX components." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Plugin API — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Plugin API</h1>
+        <p class="lede">Extend Neuron with built-in commands, panels, runtime capabilities, and MDX components.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#module-shape">Module shape</a></li><li><a href="#manifest">Manifest</a></li><li><a href="#panels">Panels</a></li><li><a href="#commands">Commands</a></li><li><a href="#runtime-capabilities">Runtime capabilities</a></li><li><a href="#mdx-components">MDX components</a></li><li><a href="#lifecycle">Lifecycle</a></li><li><a href="#external-plugins">External plugins</a></li></ul></details><p>Plugins extend Neuron with commands, panels, and MDX components. Built-in plugins under <code>src/renderer/plugins/builtin/</code> are the current executable examples.</p>
+<h2 id="module-shape"><a class="heading-anchor" href="#module-shape">Module shape</a></h2>
+<pre><code class="language-tsx">import type { PluginModule } from '../types';
+
+const example: PluginModule = {
+  manifest: {
+    id: 'example.inspector',
+    name: 'Example inspector',
+    version: '1.0.0',
+    description: 'Shows context for the active note.',
+    category: 'view',
+  },
+  activate(host) {
+    host.registerPanel({
+      id: 'inspector',
+      title: 'Inspector',
+      location: 'side',
+      render(runtime) {
+        return &lt;div&gt;{runtime.activeNote ?? 'No note selected'}&lt;/div&gt;;
+      },
+    });
+  },
+};
+
+export default example;
+</code></pre>
+<h2 id="manifest"><a class="heading-anchor" href="#manifest">Manifest</a></h2>
+<p>Every plugin declares a stable ID, display name, semantic version, description, and category. Optional configuration schemas let the plugin manager render text, password, or URL settings without custom settings UI.</p>
+<h2 id="panels"><a class="heading-anchor" href="#panels">Panels</a></h2>
+<p><code>registerPanel</code> adds a persistent view. Use <code>location: 'side'</code> for assistants, inspectors, and calendars. Use <code>location: 'bottom'</code> for terminals, logs, diagnostics, and other wide tools. Side is the compatibility default when location is omitted.</p>
+<h2 id="commands"><a class="heading-anchor" href="#commands">Commands</a></h2>
+<p><code>registerCommand</code> adds an action to the command palette. Commands receive the current runtime at invocation time, so they should not capture stale note state during activation.</p>
+<h2 id="runtime-capabilities"><a class="heading-anchor" href="#runtime-capabilities">Runtime capabilities</a></h2>
+<p>The runtime provides the active note path and content, repository note paths, note opening/creation, refresh, validated plugin configuration, namespaced storage, and approved AI/network clients. Keep permissions narrow and make network behavior explicit in the plugin description.</p>
+<h2 id="mdx-components"><a class="heading-anchor" href="#mdx-components">MDX components</a></h2>
+<p><code>registerMdxComponent</code> associates a component name with a React component. Components must render safely from note-controlled props and should use Neuron tokens instead of fixed theme colors.</p>
+<h2 id="lifecycle"><a class="heading-anchor" href="#lifecycle">Lifecycle</a></h2>
+<p>Activation may return a cleanup function. Use it to remove timers, subscriptions, or external resources. The host reactivates enabled plugins when the enabled set changes and keeps panel components mounted during note editing.</p>
+<h2 id="external-plugins"><a class="heading-anchor" href="#external-plugins">External plugins</a></h2>
+<p>Folder-loaded third-party plugins are not enabled yet. Until a loader, permission review, and trust model are implemented, plugins must be included in the built-in catalog and reviewed as application code.</p>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,52 @@
+/* Dark palette.
+ *
+ * Selectors are doubled (:root:root, :root:root .strip) on purpose. index.html,
+ * installing.html and the other landing pages carry their own <style> block,
+ * which comes after this <link> in the document; a plain :root here has equal
+ * specificity and loses on order, so dark mode applied to the docs pages -- which
+ * have no inline style -- and silently did not apply to the landing pages. A
+ * site that goes dark on half its pages is worse than one that never does.
+ */
+:root {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:root {
+    --paper: #101011;
+    --paper-2: #18181a;
+    --paper-3: #222225;
+    --ink: #f5f5f6;
+    --ink-2: #c9c9cd;
+    --ink-3: #a2a2a8;
+    --line: #303034;
+    --line-strong: #46464c;
+    --blue: #7595ff;
+    --blue-deep: #a9bcff;
+    --blue-lift: #91aaff;
+    --amber: #f1c66d;
+    --amber-bg: #2a2111;
+    --amber-line: #59451e;
+    --added: #70cf9a;
+    --changed: #80bce4;
+    --fixed: #ef8f83;
+    --security: #f1c66d;
+  }
+
+  :root:root .strip,
+  :root:root .band-dark,
+  :root:root pre {
+    background: #050506;
+    color: #f5f5f6;
+  }
+
+  :root:root .band-dark .lede .dim,
+  :root:root .band-dark .three p,
+  :root:root pre .c {
+    color: #a8a8ad;
+  }
+
+  :root:root .shot {
+    background: #fff;
+  }
+}

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="See how Electron’s main process, preload bridge, renderer, storage, and packaging fit together." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>Architecture — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>Architecture</h1>
+        <p class="lede">See how Electron’s main process, preload bridge, renderer, storage, and packaging fit together.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#main-process">Main process</a></li><li><a href="#preload-bridge">Preload bridge</a></li><li><a href="#renderer">Renderer</a></li><li><a href="#notes-and-repositories">Notes and repositories</a></li><li><a href="#file-driven-surfaces">File-driven surfaces</a></li><li><a href="#htmx-view-server">HTMX view server</a></li><li><a href="#terminal-and-automations">Terminal and automations</a></li><li><a href="#settings">Settings</a></li><li><a href="#markdown-and-mdx">Markdown and MDX</a></li><li><a href="#plugin-boundary">Plugin boundary</a></li><li><a href="#packaging">Packaging</a></li></ul></details><p>Neuron is a two-process Electron application with a narrow preload bridge.</p>
+<h2 id="main-process"><a class="heading-anchor" href="#main-process">Main process</a></h2>
+<p><code>src/main/main.ts</code> owns privileged operations: application windows, repository selection, filesystem reads and writes, file watching, settings persistence, shell access, terminal execution, and approved network requests. The renderer never receives direct Node.js access.</p>
+<p>Installed builds load <code>dist/renderer/index.html</code>. Development builds load the local Vite server. The packaged demo repository and window icon resolve from <code>process.resourcesPath</code>; development resolves them from the project tree.</p>
+<h2 id="preload-bridge"><a class="heading-anchor" href="#preload-bridge">Preload bridge</a></h2>
+<p><code>src/main/preload.ts</code> exposes explicit IPC methods through <code>contextBridge</code>. <code>contextIsolation</code> remains enabled and <code>nodeIntegration</code> remains disabled. Add new privileged capabilities as small typed methods rather than exposing <code>ipcRenderer</code> or Node modules wholesale.</p>
+<h2 id="renderer"><a class="heading-anchor" href="#renderer">Renderer</a></h2>
+<p>The React renderer owns workspace state, navigation, note tabs, CodeMirror editing, preview rendering, graph interactions, themes, and plugin presentation. <code>src/renderer/electron.d.ts</code> describes the bridge available to renderer code.</p>
+<h2 id="notes-and-repositories"><a class="heading-anchor" href="#notes-and-repositories">Notes and repositories</a></h2>
+<p>A repository is an ordinary folder. Neuron scans <code>.md</code>, <code>.mdx</code>, <code>.html</code>, <code>.db</code>, <code>.canvas</code>, and <code>.neuron</code> configuration files, stores paths relative to the selected repository, and writes text without converting the document into a proprietary format. Chokidar reports external changes back to the renderer.</p>
+<h2 id="file-driven-surfaces"><a class="heading-anchor" href="#file-driven-surfaces">File-driven surfaces</a></h2>
+<p><code>src/renderer/surfaces/</code> holds the registry: <code>getSurface(path)</code> maps a file extension to a surface component that replaces the Markdown editor. <code>.db</code> renders a Notion-style database, <code>.canvas</code> a JSON Canvas board, and <code>.html</code> a sandboxed view — user-authored HTML rendered in an isolated webview against a token-authenticated loopback API (see <a href="/docs/htmx-views/">htmx-views.md</a>).</p>
+<p><code>neuron.config</code> is still supported as the internal workspace shell layout. It uses the same layout parser and panel renderers, but it is not a public surface extension.</p>
+<h2 id="htmx-view-server"><a class="heading-anchor" href="#htmx-view-server">HTMX view server</a></h2>
+<p><code>src/main/htmx/</code> implements the local view server: loopback-only, ephemeral port, per-view session tokens, capability manifests with default-deny permissions, and glob path policies. The server module is Electron-free and covered by <code>tools/htmx-views.test.mjs</code>.</p>
+<h2 id="terminal-and-automations"><a class="heading-anchor" href="#terminal-and-automations">Terminal and automations</a></h2>
+<p>The main process spawns interactive PTYs with <code>node-pty</code> (<code>terminal:spawn/write/resize/kill</code>, streamed over <code>terminal:data</code>); the renderer renders them with xterm.js (<code>components/XtermTerminal.tsx</code>). node-pty ships ABI-stable N-API prebuilds, so packaging sets <code>npmRebuild: false</code> and unpacks it from the asar. Automations are named command sequences stored in settings and run one-shot through the existing <code>terminal:run</code> bridge.</p>
+<h2 id="settings"><a class="heading-anchor" href="#settings">Settings</a></h2>
+<p>Application and plugin settings are stored as JSON in Electron's user-data directory. A migration path preserves settings created by older AutoNote builds. Credentials are not bundled into renderer assets or committed to the repository.</p>
+<h2 id="markdown-and-mdx"><a class="heading-anchor" href="#markdown-and-mdx">Markdown and MDX</a></h2>
+<p>CodeMirror provides raw and live editing. The reading/split preview supports headings, lists, tasks, tables, quotes, code, wiki-links, and the built-in MDX component set. Plugin-provided MDX components are registered through the plugin host.</p>
+<h2 id="plugin-boundary"><a class="heading-anchor" href="#plugin-boundary">Plugin boundary</a></h2>
+<p>Plugins are local modules activated by the host. A plugin can register commands, panels, and MDX components. Runtime access is capability-based: active note context, note creation/opening, namespaced storage, and approved AI/network bridges. Panels explicitly choose a <code>side</code> or <code>bottom</code> location.</p>
+<h2 id="packaging"><a class="heading-anchor" href="#packaging">Packaging</a></h2>
+<p>Vite emits renderer assets to <code>dist/renderer</code>; TypeScript emits the main process to <code>dist/main</code>. Electron Builder packages those outputs, the canonical icon, and example repository. GitHub Actions performs platform-native release builds from version tags.</p>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Create sandboxed workspace views with manifests, variables, fragments, and local APIs." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  <link rel="preload" href="/fonts/source-serif-4-400-3.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/archivo-400-0.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/fonts.css" />
+  <link rel="stylesheet" href="/docs/docs.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="canonical" href="https://neuron-workspace.github.io/docs//" />
+  <title>HTMX views — Neuron documentation</title>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+  <rect width="512" height="512" rx="112" fill="currentColor" />
+  <g transform="translate(256,256)" fill="#ffffff">
+    <polygon points="-24,-136 24,-136 16,6 -16,6" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+    <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+  </g>
+</svg>Neuron</a>
+      <nav class="nav-links" aria-label="Project links">
+        <a href="/#download">Download</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <header class="docs-head">
+      <div class="wrap">
+        <p class="kicker">Documentation</p>
+        <h1>HTMX views</h1>
+        <p class="lede">Create sandboxed workspace views with manifests, variables, fragments, and local APIs.</p>
+      </div>
+    </header>
+    <div class="wrap docs-layout">
+      <nav class="docs-nav" aria-label="Documentation"><h2>Guides</h2>
+<a href="/docs/features/">Feature guide</a>
+<a href="/docs/custom-views/">File surfaces</a>
+<a href="/docs/htmx-views/">HTMX views</a>
+<h2>Reference</h2>
+<a href="/docs/plugin-api/">Plugin API</a>
+<a href="/docs/troubleshooting/">Troubleshooting</a>
+<a href="/docs/design-system/">Design system</a>
+<h2>Architecture</h2>
+<a href="/docs/architecture/">Architecture</a>
+<a href="/docs/architecture/metadata-index/">Metadata index</a>
+<a href="/docs/architecture/neuron-protocol-api/">Neuron protocol API</a>
+<a href="/docs/architecture/plugin-sandbox/">Plugin sandbox</a></nav>
+      <article class="prose"><details class="on-this-page"><summary>On this page</summary><ul><li><a href="#user-guide">User guide</a></li><li><a href="#maintainer-guide">Maintainer guide</a></li><li><a href="#threat-model">Threat model</a></li><li><a href="#scripts-and-runtime-assets">Scripts and runtime assets</a></li></ul></details><p>HTMX views let users build custom local interfaces — dashboards, trackers,
+browsers, forms — as plain <code>.html</code> files: ordinary HTML with
+<a href="https://htmx.org">htmx</a> attributes, rendered in an isolated tab and talking to
+a token-authenticated loopback API. Every view is treated as <strong>untrusted
+content</strong>; every filesystem operation is <strong>privileged and policy-checked</strong>.</p>
+<h2 id="user-guide"><a class="heading-anchor" href="#user-guide">User guide</a></h2>
+<h3 id="creating-a-view"><a class="heading-anchor" href="#creating-a-view">Creating a view</a></h3>
+<ul>
+<li>Command palette → <strong>New HTMX view in current folder</strong> (default <code>Ctrl+G</code>),
+or create any file ending in <code>.html</code>.</li>
+<li>Opening the file renders the view tab. The <strong>Source</strong> toggle in the tab
+header edits the same file as text; saving reloads only that tab.</li>
+<li>Starter templates are scaffolded into <code>.neuron/templates/</code> the first time a
+view opens (dashboard, note browser, file list) — copy one to get going.</li>
+</ul>
+<h3 id="writing-a-view"><a class="heading-anchor" href="#writing-a-view">Writing a view</a></h3>
+<p>A view file is HTML <strong>body content</strong> (no <code>&lt;html&gt;</code>/<code>&lt;head&gt;</code> needed). Neuron
+wraps it, injects the bundled htmx runtime, and <strong>attaches the <code>neuron.css</code>
+stylesheet for you</strong> — so you write plain semantic HTML and it comes out
+styled to match the app:</p>
+<pre><code class="language-html">&lt;header&gt;
+  &lt;h1&gt;My dashboard&lt;/h1&gt;
+&lt;/header&gt;
+
+&lt;div class=&quot;neuron-grid cols-3&quot;&gt;
+  &lt;section hx-get=&quot;/api/v1/fragments/workspace-summary&quot; hx-trigger=&quot;load&quot; hx-swap=&quot;innerHTML&quot;&gt;
+    Loading…
+  &lt;/section&gt;
+&lt;/div&gt;
+
+&lt;section&gt;
+  &lt;form hx-get=&quot;/api/v1/search&quot; hx-target=&quot;#search-results&quot;
+        hx-trigger=&quot;submit, input changed delay:300ms from:#query&quot;&gt;
+    &lt;label for=&quot;query&quot;&gt;Search notes&lt;/label&gt;
+    &lt;input id=&quot;query&quot; name=&quot;query&quot; type=&quot;search&quot; autocomplete=&quot;off&quot; /&gt;
+  &lt;/form&gt;
+  &lt;div id=&quot;search-results&quot;&gt;&lt;/div&gt;
+&lt;/section&gt;
+</code></pre>
+<p>No token handling is required — authentication is injected by Neuron at
+runtime (an HttpOnly session cookie scoped to the view's isolated partition).
+Never paste tokens into view source; there is nothing to paste.</p>
+<p><strong>Semantic HTML is styled directly.</strong> A bare <code>&lt;section&gt;</code>/<code>&lt;article&gt;</code> is a
+card; <code>&lt;button&gt;</code> is a primary button; <code>&lt;input&gt;</code>, <code>&lt;select&gt;</code>, <code>&lt;textarea&gt;</code>,
+<code>&lt;table&gt;</code>, <code>&lt;label&gt;</code>, <code>&lt;code&gt;</code> all inherit the Neuron look. <code>&lt;header&gt;</code> and the
+layout classes below stay transparent so they can wrap cards. Everything
+follows the app's light/dark theme automatically.</p>
+<p>On top of the semantic defaults, <code>neuron.css</code> is a small <strong>shadcn-style
+component library</strong> (class-based, so you compose richer UI than bare elements
+give you):</p>
+<ul>
+<li><strong>Card</strong> — <code>card</code> with <code>card-header</code>, <code>card-title</code>, <code>card-description</code>,
+<code>card-content</code>, <code>card-footer</code>. (A bare <code>&lt;section&gt;</code> is a pre-padded card if you
+don't need the sub-parts.)</li>
+<li><strong>Button</strong> — <code>btn</code> with variants <code>btn-secondary</code>, <code>btn-outline</code>, <code>btn-ghost</code>,
+<code>btn-destructive</code> and sizes <code>btn-sm</code>, <code>btn-lg</code>, <code>btn-icon</code>.</li>
+<li><strong>Badge</strong> — <code>badge</code> with <code>badge-primary</code>, <code>badge-outline</code>, <code>badge-destructive</code>.</li>
+<li><strong>Form</strong> — <code>input</code>, <code>label</code> (a bare <code>&lt;input&gt;</code>/<code>&lt;select&gt;</code>/<code>&lt;textarea&gt;</code> already
+gets the field style).</li>
+<li><strong>Layout &amp; bits</strong> — <code>grid</code> (+ <code>cols-2/3/4</code>), <code>stack</code>, <code>row</code>, <code>toolbar</code>,
+<code>separator</code>, <code>metric</code> / <code>metric-label</code>, <code>muted</code>, and <code>kbd</code> (a bare <code>&lt;kbd&gt;</code> or
+<code>class=&quot;kbd&quot;</code>/<code>neuron-kbd</code> renders a keyboard-hint cap).</li>
+</ul>
+<p>The legacy <code>neuron-*</code> classes (<code>neuron-card</code>, <code>neuron-button</code>, <code>neuron-input</code>,
+<code>neuron-table</code>, <code>neuron-badge</code>, <code>neuron-grid</code>, <code>neuron-stack</code>, <code>neuron-toolbar</code>,
+<code>neuron-metric</code>, <code>neuron-list</code>, <code>neuron-alert</code>, <code>neuron-empty</code>) are kept as
+aliases, so existing views and the server-rendered fragments keep working.</p>
+<p><code>{{ variables.name }}</code> in a view or fragment is replaced server-side with the
+variable's value, always HTML-escaped. It is a key lookup, not an expression
+language — no code, no prototypes, unknown keys render as nothing.</p>
+<h3 id="the-neuron-folder"><a class="heading-anchor" href="#the-neuron-folder">The <code>.neuron</code> folder</a></h3>
+<pre><code>.neuron/
+  config.json        # feature config (schema version)
+  variables.json     # typed variables exposed to views
+  manifests/         # per-view permission manifests → &quot;My view.html&quot; ⇒ manifests/My view.json
+  fragments/         # reusable HTML partials → GET /api/v1/fragments/&lt;name&gt;
+  styles/            # optional CSS; &quot;My view.html&quot; auto-loads &quot;My view.css&quot;
+  templates/         # starter views to copy
+  layout.json        # (pre-existing) workspace shell layout
+</code></pre>
+<p>Everything is plain text and safe to edit in Neuron. Files are created lazily
+and never overwritten. <code>variables.json</code>:</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;variables&quot;: {
+    &quot;dashboardTitle&quot;: { &quot;type&quot;: &quot;string&quot;, &quot;value&quot;: &quot;My Dashboard&quot;, &quot;writable&quot;: false },
+    &quot;projectStatus&quot;:  { &quot;type&quot;: &quot;string&quot;, &quot;value&quot;: &quot;active&quot;, &quot;writable&quot;: true }
+  }
+}
+</code></pre>
+<p>Custom CSS is local-only: <code>@import</code> and remote <code>url()</code> references are blocked.</p>
+<h3 id="manifests-and-permissions"><a class="heading-anchor" href="#manifests-and-permissions">Manifests and permissions</a></h3>
+<p>Views receive <strong>no capabilities by default</strong>. To read or write workspace data,
+add a manifest under <code>.neuron/manifests/</code>, mirroring the view's path —
+<code>projects.html</code> → <code>.neuron/manifests/projects.json</code> (a legacy
+<code>projects.neuron.json</code> sidecar next to the view is still read if present):</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;Projects&quot;,
+  &quot;version&quot;: &quot;1.0.0&quot;,
+  &quot;description&quot;: &quot;Tracks project status.&quot;,
+  &quot;permissions&quot;: [&quot;workspace.files.read&quot;, &quot;workspace.files.write&quot;, &quot;variables.read&quot;],
+  &quot;allowedReadPaths&quot;: [&quot;Projects/**&quot;],
+  &quot;allowedWritePaths&quot;: [&quot;.neuron/data/projects.json&quot;],
+  &quot;networkPolicy&quot;: &quot;none&quot;
+}
+</code></pre>
+<ul>
+<li>Capabilities: <code>workspace.files.read</code>, <code>workspace.files.write</code>,
+<code>workspace.files.create</code>, <code>workspace.files.delete</code>,
+<code>workspace.directories.list</code>, <code>workspace.search</code>, <code>notes.read</code>, <code>tags.read</code>,
+<code>variables.read</code>, <code>variables.write</code>.</li>
+<li>Unknown manifest fields and unknown permissions are <strong>rejected</strong>, not
+ignored. <code>networkPolicy</code> accepts only <code>&quot;none&quot;</code> — views cannot reach the
+network at all.</li>
+<li>Every requested capability requires approval on first open. Approval is bound
+to the exact manifest content, so an edit asks again.</li>
+<li>The approval dialog offers <strong>Allow for this view</strong> / <strong>Allow once</strong>.
+Approvals are stored in Neuron's protected application
+settings — never in the workspace — and are bound to the manifest's content
+hash: any manifest edit re-requests approval.</li>
+<li>Reset a view's approval with <code>htmxViews.resetApproval</code> (exposed for the
+permission card) or by editing the manifest.</li>
+</ul>
+<h3 id="api-routes-apiv1"><a class="heading-anchor" href="#api-routes-apiv1">API routes (<code>/api/v1</code>)</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Cap</th>
+<th>Returns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /context</code></td>
+<td>—</td>
+<td>view, workspace, theme, granted capabilities, API version</td>
+</tr>
+<tr>
+<td><code>GET /variables</code>, <code>GET /variables/:key</code></td>
+<td><code>variables.read</code></td>
+<td>variable definitions/values</td>
+</tr>
+<tr>
+<td><code>PUT /variables/:key</code></td>
+<td><code>variables.write</code></td>
+<td>updates a <code>writable: true</code> variable (type-checked)</td>
+</tr>
+<tr>
+<td><code>GET /files?dir&amp;glob&amp;limit</code></td>
+<td><code>workspace.directories.list</code></td>
+<td>file listing (JSON, or HTML for htmx)</td>
+</tr>
+<tr>
+<td><code>GET /files/content?path</code></td>
+<td><code>workspace.files.read</code></td>
+<td><code>{path, content, hash}</code> (≤ 2 MB, read-path-checked)</td>
+</tr>
+<tr>
+<td><code>PUT /files/content</code></td>
+<td><code>workspace.files.write</code></td>
+<td>atomic write; <code>baseHash</code> mismatch → 409 conflict</td>
+</tr>
+<tr>
+<td><code>POST /files</code></td>
+<td><code>workspace.files.create</code></td>
+<td>creates; 409 if the file exists</td>
+</tr>
+<tr>
+<td><code>DELETE /files?path</code></td>
+<td><code>workspace.files.delete</code></td>
+<td>deletes within write paths</td>
+</tr>
+<tr>
+<td><code>GET /search?query</code></td>
+<td><code>workspace.search</code></td>
+<td>note matches (HTML fragment for htmx requests)</td>
+</tr>
+<tr>
+<td><code>GET /notes?tag&amp;folder&amp;limit</code></td>
+<td><code>notes.read</code></td>
+<td>note metadata (HTML table for htmx)</td>
+</tr>
+<tr>
+<td><code>GET /tags</code></td>
+<td><code>tags.read</code></td>
+<td>tag list (HTML badges for htmx)</td>
+</tr>
+<tr>
+<td><code>GET /fragments/:name?params…</code></td>
+<td>— (<code>notes.read</code> + <code>tags.read</code> for <code>workspace-summary</code>)</td>
+<td>rendered fragment from <code>.neuron/fragments</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Responses are HTML fragments when the request carries htmx's <code>HX-Request</code>
+header, JSON otherwise. Errors are structured
+(<code>{error: {code, message, requestId}}</code> or a <code>.neuron-alert</code> fragment) and never
+include stack traces, absolute paths, tokens, or internals.</p>
+<p>There is deliberately <strong>no</strong> <code>/execute</code>, <code>/ipc</code>, <code>/command</code>, or generic
+filesystem proxy. Every route is explicitly implemented, validated,
+capability-checked, and rate-limited.</p>
+<h2 id="maintainer-guide"><a class="heading-anchor" href="#maintainer-guide">Maintainer guide</a></h2>
+<h3 id="modules-srcmainhtmx"><a class="heading-anchor" href="#modules-srcmainhtmx">Modules (<code>src/main/htmx/</code>)</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server.ts</code></td>
+<td>Loopback HTTP server, routing, API handlers, resource limits. Electron-free.</td>
+</tr>
+<tr>
+<td><code>sessions.ts</code></td>
+<td>Session + token lifecycle (one-time boot token, cookie token, constant-time compare, TTL, rate bucket).</td>
+</tr>
+<tr>
+<td><code>pathPolicy.ts</code></td>
+<td>Glob compilation, relative-path normalization, canonical resolution, symlink-escape rejection.</td>
+</tr>
+<tr>
+<td><code>manifest.ts</code></td>
+<td>Manifest / variables / capability validation (strict, unknown-key-rejecting).</td>
+</tr>
+<tr>
+<td><code>html.ts</code></td>
+<td>Escaping, limited <code>{{ }}</code> interpolation, document wrapper, fragment renderers.</td>
+</tr>
+<tr>
+<td><code>theme.ts</code></td>
+<td>The <code>neuron.css</code> string served to views.</td>
+</tr>
+<tr>
+<td><code>index.ts</code></td>
+<td>Electron wiring: IPC (<code>htmx-views:open/approve/close/reset-approval</code>), approval store, <code>.neuron</code> scaffolding, server lifecycle.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Renderer: <code>src/renderer/surfaces/HtmxViewSurface.tsx</code> (the tab — loading /
+permission / error / crashed states, <code>&lt;webview&gt;</code> host). Registered for
+<code>html</code> in the generic surface registry.</p>
+<h3 id="server-and-session-lifecycle"><a class="heading-anchor" href="#server-and-session-lifecycle">Server and session lifecycle</a></h3>
+<ul>
+<li>The server starts lazily on the first view open, binds <strong>only</strong> to
+<code>127.0.0.1</code> on an <strong>ephemeral port</strong>, and dies with the app. Workspace
+switches revoke all sessions (<code>revokeAllViewSessions</code>).</li>
+<li>Opening a view creates a session bound to (workspace root, view path,
+capability set, compiled path policies, theme). The renderer gets a URL
+<code>…/views/{sessionId}/document?boot={oneTimeToken}</code>.</li>
+<li>The first document request consumes the boot token and sets an
+<code>HttpOnly; SameSite=Strict</code> cookie <code>nv={sessionId}:{cookieToken}</code>. All later
+requests (htmx XHR, stylesheets, htmx.js) authenticate with that cookie.</li>
+<li>Each tab's <code>&lt;webview&gt;</code> uses a <strong>per-session in-memory partition</strong>
+(<code>view-{sessionId}</code>): cookies and storage are isolated per view, so one view
+can never present another view's token, and nothing persists after close.</li>
+<li>Closing the tab revokes the session; tokens also expire after 12 h.
+Localhost is <strong>not</strong> treated as an authentication boundary — every request
+must present a valid session token, and the Host header must match the
+server origin (DNS-rebinding guard).</li>
+</ul>
+<p>A custom <code>neuron-view://</code> protocol was considered; a loopback HTTP server was
+chosen because htmx needs real HTTP verbs (GET/POST/PUT/DELETE), standard
+form encoding, and cookie semantics. The tradeoff — other local processes can
+connect to the port — is mitigated by the unguessable per-view tokens.</p>
+<h3 id="rendering-isolation"><a class="heading-anchor" href="#rendering-isolation">Rendering isolation</a></h3>
+<ul>
+<li>Views render in Electron <code>&lt;webview&gt;</code>s. Main enforces on every web-contents
+(<code>will-attach-webview</code>): no preload, no Node, context isolation + sandbox
+on. Permission requests (camera, mic, …) are denied.</li>
+<li>View documents get a strict CSP:
+<code>default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'</code> — no remote scripts, no inline or
+user-authored script execution (the only <code>'self'</code> script is the bundled
+htmx runtime; <code>X-Content-Type-Options: nosniff</code> stops mime confusion).</li>
+<li>Main-process guards pin view webviews to the server origin: navigation off
+the origin is blocked, <code>window.open</code> is denied outright (not even handed to
+the OS browser — popups are an exfiltration channel).</li>
+<li>htmx 2 defaults to <code>selfRequestsOnly</code>; CSP <code>connect-src 'self'</code> enforces the
+same at the platform level.</li>
+</ul>
+<h3 id="adding-an-api-endpoint-safely"><a class="heading-anchor" href="#adding-an-api-endpoint-safely">Adding an API endpoint safely</a></h3>
+<ol>
+<li>Add the route in <code>server.ts:serveApi</code> with an explicit method match.</li>
+<li>Gate it with <code>requireCap(ctx, '…')</code> — add a new capability to
+<code>manifest.ts</code> if none fits (never widen an existing one).</li>
+<li>Resolve any path through <code>checkedPath(ctx, raw, 'read'|'write')</code> — never
+<code>path.join</code> user input directly.</li>
+<li>Build HTML through the <code>html.ts</code> helpers (<code>esc</code> everything); JSON via
+<code>sendJson</code>. Errors via <code>fail(ctx, status, code, safeMessage)</code>.</li>
+<li>Respect the resource ceilings at the top of <code>server.ts</code>; add one if the
+route can amplify work.</li>
+<li>Add unit/integration assertions in <code>tools/htmx-views.test.mjs</code>.</li>
+</ol>
+<h2 id="threat-model"><a class="heading-anchor" href="#threat-model">Threat model</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Threat</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Arbitrary file read/write</td>
+<td>Default-deny capabilities; per-view glob path policies; canonical resolution against the workspace root only</td>
+</tr>
+<tr>
+<td>Path traversal (<code>..</code>, encoded, absolute, drive letters, UNC, <code>~</code>, null bytes)</td>
+<td><code>normalizeRel</code> rejects them all before resolution; post-resolution containment check</td>
+</tr>
+<tr>
+<td>Symlink/junction escape</td>
+<td>Deepest existing ancestor is <code>realpath</code>ed and must remain inside the canonical root; the workspace walker never follows symlinks</td>
+</tr>
+<tr>
+<td>Overwriting concurrent edits</td>
+<td><code>baseHash</code> optimistic concurrency → 409; atomic temp-file+rename writes</td>
+</tr>
+<tr>
+<td>Deleting files</td>
+<td>Separate <code>workspace.files.delete</code> capability + write-path policy + approval dialog</td>
+</tr>
+<tr>
+<td>Localhost service probing / SSRF from a view</td>
+<td>CSP <code>connect-src 'self'</code>; htmx self-requests only; navigation + popups blocked in main</td>
+</tr>
+<tr>
+<td>CSRF from a browser page against the loopback port</td>
+<td>Token cookie lives only inside the view's isolated partition; <code>SameSite=Strict</code>; Origin header rejected when foreign</td>
+</tr>
+<tr>
+<td>Token theft</td>
+<td>HttpOnly cookie (invisible to page content); boot token is one-time; tokens never logged, never in view files, never persisted</td>
+</tr>
+<tr>
+<td>Cross-view access</td>
+<td>Unguessable session ids; per-view cookie comparison; <code>/views/{sid}/*</code> requires the cookie's session to match <code>sid</code>; per-view partitions</td>
+</tr>
+<tr>
+<td>XSS / HTML injection in fragments</td>
+<td>All server-rendered values pass through <code>esc()</code>; interpolation is escaped key-lookup only; no string-concatenated HTML</td>
+</tr>
+<tr>
+<td>Prototype pollution via <code>{{ }}</code> or JSON</td>
+<td><code>__proto__</code>/<code>constructor</code>/<code>prototype</code> lookups blocked; own-property checks; strict schema validation with unknown-key rejection</td>
+</tr>
+<tr>
+<td>Malicious CSS</td>
+<td>Local files only, size-capped, <code>@import</code>/remote <code>url()</code> blocked; view renders in its own webview so it cannot restyle or impersonate Neuron UI</td>
+</tr>
+<tr>
+<td>Unsafe URLs / unrestricted navigation</td>
+<td>CSP + main-process <code>will-navigate</code> guard pinned to the view origin; <code>window.open</code> denied</td>
+</tr>
+<tr>
+<td>Remote exfiltration</td>
+<td>No network capability exists; <code>networkPolicy</code> accepts only <code>&quot;none&quot;</code>; CSP blocks all remote loads</td>
+</tr>
+<tr>
+<td>Request floods / accidental htmx loops</td>
+<td>Per-session token bucket (burst 30, ~15 rps) → 429; body ≤ 1 MB; file reads ≤ 2 MB; listings ≤ 500; walk budget 20 000; search capped</td>
+</tr>
+<tr>
+<td>Hostile configuration files</td>
+<td><code>variables.json</code>/manifests validated with versioned schemas; invalid config fails closed with diagnostics</td>
+</tr>
+<tr>
+<td>DNS rebinding</td>
+<td>Exact Host-header check against the loopback origin</td>
+</tr>
+<tr>
+<td>Manifest self-escalation</td>
+<td>Manifests only <em>request</em>; every grant requires user approval bound to the manifest hash; approvals live in app settings, not the workspace</td>
+</tr>
+<tr>
+<td>View impersonation after edit</td>
+<td>Manifest hash change invalidates prior approval; source/manifest changes reload the tab with a fresh session</td>
+</tr>
+</tbody>
+</table></div>
+<p>Known limitations (deliberate, documented): no remote-content capability, no
+<code>commands.execute</code>/actions bridge, search is a bounded workspace scan rather
+than an index, and the request inspector devtool is not built — the standard
+webview devtools plus server error codes cover debugging today.</p>
+<h2 id="scripts-and-runtime-assets"><a class="heading-anchor" href="#scripts-and-runtime-assets">Scripts and runtime assets</a></h2>
+<p>Every <code>.html</code> view may include inline CSS and JavaScript. Neuron always injects
+the bundled htmx runtime and <code>neuron.css</code>; an author who does not use them needs
+no opt-out mode. Authored JavaScript can call the same <code>/api/v1</code> surface as
+htmx, gated by the same manifest and approval.</p>
+<p>The single CSP permits scripts with <code>script-src 'self' 'unsafe-inline'</code>, while
+<code>connect-src</code> stays <code>'self'</code>. That distinction is the safety boundary: a view
+can call Neuron's loopback API but cannot reach the internet. Remote images and
+other loads remain blocked, popups are denied, and navigation is pinned to the
+view origin. Every view also keeps its own sandboxed <code>&lt;webview&gt;</code> and per-session
+partition, with no preload and no Node.</p>
+<p>The bundled scripted example is <code>examples/demo-repo/Custom dashboard.html</code>.</p>
+</article>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap foot-in">
+      <span>Neuron · Apache-2.0</span>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="/">Downloads</a>
+        <a href="/docs/">Docs</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/license.html">Licence</a>
+        <a href="https://github.com/neuron-workspace/Neuron">Source</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
