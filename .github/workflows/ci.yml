@@ -1,0 +1,30 @@
+name: CI
+
+# The site has no build step, so nothing here compiles anything. These are the
+# two ways a static documentation site actually breaks: a link stops resolving
+# after a rename, and the download page stops finding a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Internal links resolve
+        run: python3 tools/linkcheck.py
+
+      # Runs the download page's own script against fixture releases, in a VM
+      # with a stub DOM. It asserts the newest non-prerelease is chosen and that
+      # values from the GitHub API are escaped before they reach innerHTML.
+      - name: Download page picks the right release
+        run: node tools/download-page.test.mjs
