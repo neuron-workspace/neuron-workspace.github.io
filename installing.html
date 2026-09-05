@@ -306,6 +306,12 @@
             brand-new certificate would trip it too.
           </p>
 
+          <p style="margin-top:1rem">
+            <b>Or skip it:</b> <code>choco install neuron</code> installs the same
+            build from an elevated prompt, and Chocolatey checks it against the
+            checksums published with the release before it runs anything.
+          </p>
+
           <div class="warn">
             <h3>You will see this</h3>
             <p>A blue dialog, with no obvious way forward. The button you need is hidden behind the link.</p>
@@ -358,6 +364,14 @@ gh attestation verify <span id="verify-name">Neuron-win-x64.exe</span> --repo ne
             “Neuron can’t be opened because it is from an unidentified developer”.
             That is the expected prompt for software Apple has not been paid to
             vouch for, and the steps below clear it permanently.
+          </p>
+
+          <p style="margin-top:1rem">
+            <b>Or skip all of it:</b> <code>brew install --cask
+            neuron-workspace/neuron/neuron</code> installs the same build without
+            the prompt. Homebrew clears the quarantine flag on casks it installed
+            itself, which is the supported way past Gatekeeper — unlike running
+            <code>xattr</code> by hand on something you did not build.
           </p>
 
           <ol class="steps">
