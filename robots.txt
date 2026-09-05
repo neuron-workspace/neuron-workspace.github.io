@@ -1,0 +1,8 @@
+# Everything here is public documentation for an open-source app; there is
+# nothing to keep out of an index. The one page that should not be indexed says
+# so itself, with a robots meta tag, because a crawler that arrives at
+# /installing.html from a shared link never reads this file.
+User-agent: *
+Allow: /
+
+Sitemap: https://neuron-workspace.github.io/sitemap.xml

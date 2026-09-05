@@ -1,0 +1,191 @@
+<!doctype html>
+<!--
+  Source for /og.png — the card social networks, chat apps and search results
+  show when someone shares a Neuron link.
+
+  It is a page rather than a hand-drawn asset so it can be regenerated when the
+  brand, the tagline or the screenshot changes, instead of drifting away from
+  the site it represents. Same tokens as index.html, same two faces, the same
+  real screenshot the landing page uses.
+
+  Render it at exactly 1200×630 — the ratio every network crops to:
+
+      npx playwright install chromium
+      npx playwright screenshot --viewport-size=1200,630 \
+        tools/og-image.html og.png
+
+  Any headless browser will do; Playwright is not a dependency of this repo, and
+  the install step is what makes the one-liner work on a clean machine.
+
+  Two things to check in the output, because both fail quietly. The capture must
+  be 1200×630 and not the host's DPI multiple of it — a browser on a 125%
+  display will hand back 1500×787 unless it is told the scale factor is 1. And
+  the screenshot on the right has to be the current app: it is the same file the
+  landing page shows, regenerated in the app repo with `npm run shoot` after a
+  release, so the card goes stale the moment that one does.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Deployed with the rest of the site, but it is a source file, not a
+         page anyone should land on from a search result. -->
+    <meta name="robots" content="noindex" />
+    <link rel="stylesheet" href="../fonts.css" />
+    <style>
+      :root {
+        --ink: #0a0a0a;
+        --paper: #ffffff;
+        --blue: #2b5cf6;
+        --blue-lift: #4b78ff;
+        --on-dark: #f5f5f6;
+        --on-dark-2: #a8a8ad;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { margin: 0; padding: 0; }
+
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--ink);
+        color: var(--on-dark);
+        font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .card {
+        position: relative;
+        display: grid;
+        grid-template-columns: 600px 1fr;
+        width: 1200px;
+        height: 630px;
+        align-items: center;
+      }
+
+      /* No accent stripe down the edge. The blue has exactly one job on this
+         card -- the word the product argument rests on -- and a coloured bar
+         beside it would be decoration competing with the only thing the accent
+         is supposed to mean. */
+      .left { padding: 0 0 0 72px; }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 28px;
+        font-size: 19px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        color: var(--on-dark-2);
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 7px;
+        background: #000;
+      }
+
+      .mark svg { width: 19px; height: 19px; fill: var(--paper); }
+
+      h1 {
+        margin: 0 0 22px;
+        font-family: "Source Serif 4", ui-serif, Georgia, serif;
+        font-size: 62px;
+        font-weight: 600;
+        line-height: 1.06;
+        letter-spacing: -0.022em;
+        text-wrap: balance;
+      }
+
+      /* The one word the whole product argument rests on. */
+      h1 em { font-style: normal; color: var(--blue-lift); }
+
+      p {
+        max-width: 27ch;
+        margin: 0 0 34px;
+        font-size: 23px;
+        line-height: 1.45;
+        color: var(--on-dark-2);
+      }
+
+      .formats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        max-width: 30ch;
+      }
+
+      .formats span {
+        padding: 7px 13px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 17px;
+        color: var(--on-dark);
+      }
+
+      /* The real screenshot, bleeding off the right edge: the card shows the
+         product rather than describing it, and the crop reads as a window onto
+         something larger instead of a shrunken full page. */
+      .shot {
+        align-self: stretch;
+        overflow: hidden;
+        margin: 56px -1px 56px 0;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-right: 0;
+        border-radius: 12px 0 0 12px;
+        background: var(--paper);
+      }
+
+      .shot img {
+        display: block;
+        width: 900px;
+        height: auto;
+        margin-left: -2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="left">
+        <p class="badge">
+          <span class="mark">
+            <!-- The app's own mark, from build/icon.json. -->
+            <svg viewBox="0 0 512 512" aria-hidden="true">
+              <g transform="translate(256,256)">
+                <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(0)" />
+                <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(72)" />
+                <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(144)" />
+                <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(216)" />
+                <polygon points="-24,-136 24,-136 16,6 -16,6" transform="rotate(288)" />
+              </g>
+            </svg>
+          </span>
+          Neuron · Apache-2.0
+        </p>
+
+        <h1>Your notes stay <em>files</em>.</h1>
+
+        <p>A local-first Markdown and MDX workspace. No account, no telemetry.</p>
+
+        <div class="formats">
+          <span>.md</span>
+          <span>.mdx</span>
+          <span>.canvas</span>
+          <span>.db</span>
+          <span>.html</span>
+        </div>
+      </div>
+
+      <div class="shot">
+        <img src="../screenshots/workspace-light.png" alt="" />
+      </div>
+    </div>
+  </body>
+</html>

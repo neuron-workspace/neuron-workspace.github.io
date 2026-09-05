@@ -1,8 +1,10 @@
 name: CI
 
 # The site has no build step, so nothing here compiles anything. These are the
-# two ways a static documentation site actually breaks: a link stops resolving
-# after a rename, and the download page stops finding a release.
+# ways a static documentation site actually breaks: a link stops resolving after
+# a rename, the download page stops finding a release, and a page's metadata
+# stops matching where the page actually lives -- which is silent, because the
+# page still renders perfectly while asking search engines to drop it.
 on:
   push:
     branches: [main]
@@ -28,3 +30,15 @@ jobs:
       # values from the GitHub API are escaped before they reach innerHTML.
       - name: Download page picks the right release
         run: node tools/download-page.test.mjs
+
+      # Canonical URLs, social metadata and the sitemap are derived from where
+      # each file sits, so this fails if a page moved without them being
+      # regenerated. Ten of eleven documentation pages once shared one canonical
+      # URL, pointing at a different page, with nothing to notice.
+      - name: Page metadata matches the pages
+        run: node tools/seo.mjs --check
+
+      # A malformed JSON-LD block is invisible to a crawler and invisible on the
+      # page, so nothing else would catch it.
+      - name: Structured data parses
+        run: node tools/validate-ldjson.mjs

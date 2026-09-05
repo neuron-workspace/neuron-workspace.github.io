@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://neuron-workspace.github.io/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/changelog.html</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/architecture/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/architecture/metadata-index/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/architecture/neuron-protocol-api/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/architecture/plugin-sandbox/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/custom-views/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/design-system/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/features/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/htmx-views/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/plugin-api/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/docs/troubleshooting/</loc></url>
+  <url><loc>https://neuron-workspace.github.io/license.html</loc></url>
+  <url><loc>https://neuron-workspace.github.io/privacy.html</loc></url>
+</urlset>
