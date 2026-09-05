@@ -479,6 +479,29 @@
       }
       pre .c { color: var(--on-dark-2); }
 
+      /* --- package managers ------------------------------------------------------ */
+      .pm {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+        margin-top: 2.25rem;
+      }
+      .pm h3 {
+        display: flex; align-items: baseline; gap: 0.5rem;
+        margin: 0 0 0.6rem;
+        font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+      }
+      .pm h3 span { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+      /* The commands are short enough to sit on one line at any width, so they
+         do not need the scroll the verify block's multi-line examples do. */
+      .pm pre { font-size: 13px; padding: 0.85rem 1rem; }
+      .pm-note { margin-top: 1rem; font-size: 13px; color: var(--ink-3); max-width: var(--measure); }
+      .pm-note code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92em;
+        color: var(--ink-2);
+      }
+
       /* --- footer ---------------------------------------------------------------- */
       footer { border-top: 1px solid var(--line); padding-block: 2.5rem; font-size: 13px; color: var(--ink-3); }
       .foot-in { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: center; }
@@ -770,6 +793,26 @@
               <div class="assets" id="dl-linux"><p class="empty">Loading…</p></div>
             </div>
           </div>
+
+          <!-- Below the platform cards rather than above them: a direct
+               download is what most people arriving here want, and a package
+               manager is what the people who already have one want. Neither
+               should have to scroll past the other. -->
+          <div class="pm">
+            <div>
+              <h3>Homebrew <span>macOS</span></h3>
+              <pre>brew install --cask neuron-workspace/neuron/neuron</pre>
+            </div>
+            <div>
+              <h3>Chocolatey <span>Windows</span></h3>
+              <pre>choco install neuron</pre>
+            </div>
+          </div>
+          <p class="pm-note">
+            Both install the same release the buttons above link to, verified against
+            the checksums published with it, and both keep Neuron current with
+            <code>brew upgrade</code> or <code>choco upgrade</code>.
+          </p>
         </div>
       </section>
 
