@@ -307,9 +307,17 @@
           </p>
 
           <p style="margin-top:1rem">
-            <b>Or skip it:</b> <code>choco install neuron</code> installs the same
-            build from an elevated prompt, and Chocolatey checks it against the
-            checksums published with the release before it runs anything.
+            <b>Or avoid it entirely:</b> the
+            <a href="https://apps.microsoft.com/detail/9pfc0xc16c1g">Microsoft Store
+            build</a> is signed by Microsoft after certification, so there is no
+            warning to get past and the Store handles updates. It is the same
+            application.
+          </p>
+          <p style="margin-top:0.75rem">
+            <code>choco install neuron</code> also works, from an elevated prompt.
+            Chocolatey checks the download against the checksums published with
+            the release before it runs anything — but the installer it runs is
+            the unsigned one, so this dialog can still appear.
           </p>
 
           <div class="warn">
