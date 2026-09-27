@@ -30,6 +30,7 @@ class Element {
 async function runPage(releases) {
   const elements = new Map([
     ['strip-version', new Element()],
+    ['verify-version', new Element('<version>')],
     ['dl-meta', new Element('Checking the latest release…')],
     ['dl-windows', new Element('<p class="empty">Loading…</p>')],
     ['dl-mac', new Element('<p class="empty">Loading…</p>')],
@@ -117,6 +118,15 @@ const olderPrerelease = { ...prerelease, tag_name: 'v0.4.4-beta.1', published_at
   assert.doesNotMatch(meta, /<span class="chip">beta<\/span>/);
   assert.match(windows, /stable\.exe/);
   assert.doesNotMatch(windows, /draft\.exe|Neuron-beta-windows\.exe/);
+
+  // Every place the page names a version names the same one. The verify
+  // command matters most: it is the instruction for checking a download is
+  // genuine, and while it was hard-coded it told 0.4.5 users to verify a 0.4.3
+  // file. The banner starts hidden so a failed request never shows a stale
+  // number, and is revealed only once it has a real one.
+  assert.equal(elements.get('verify-version').textContent, '1.0.0');
+  assert.equal(elements.get('strip-version').textContent, '1.0.0');
+  assert.equal(elements.get('strip-version').hidden, false);
 }
 
 // With no published release, the promise chain is caught and every group gets
@@ -128,6 +138,13 @@ const olderPrerelease = { ...prerelease, tag_name: 'v0.4.4-beta.1', published_at
     assert.match(elements.get(id).innerHTML, /Open the Releases page/);
     assert.doesNotMatch(elements.get(id).innerHTML, /Loading/);
   }
+  // With no version known, nothing is invented: the verify command keeps its
+  // placeholder and the banner stays hidden rather than guessing.
+  // (innerHTML, not textContent: the stub's constructor writes innerHTML, and
+  // the script leaving it untouched is exactly the thing being asserted.)
+  assert.equal(elements.get('verify-version').innerHTML, '<version>');
+  assert.equal(elements.get('verify-version').textContent, '');
+  assert.notEqual(elements.get('strip-version').hidden, false);
 }
 
 console.log('download-page: success and fallback paths verified');

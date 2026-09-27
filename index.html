@@ -503,7 +503,13 @@
       .pm {
         display: grid;
         gap: 1rem;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+        /* 440px, not 320: the floor is set by the longest command, not by the
+           number of commands. The brew line is 51 characters -- about 430px at
+           13px mono with padding -- and at 320px a third column fitted beside
+           the other two and cut it off behind a scrollbar. At this floor the
+           grid holds two abreast, which also puts the two Windows commands side
+           by side and macOS on its own row. */
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
         margin-top: 2.25rem;
       }
       .pm h3 {
@@ -512,8 +518,9 @@
         font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
       }
       .pm h3 span { font-size: 12px; font-weight: 400; color: var(--ink-3); }
-      /* The commands are short enough to sit on one line at any width, so they
-         do not need the scroll the verify block's multi-line examples do. */
+      /* Each command is meant to sit on one line. That holds only because the
+         grid's column floor above is sized to the longest one -- adding a
+         longer command means raising that floor, or it scrolls. */
       .pm pre { font-size: 13px; padding: 0.85rem 1rem; }
       .pm-note { margin-top: 1rem; font-size: 13px; color: var(--ink-3); max-width: var(--measure); }
       .pm-note code {
@@ -592,7 +599,12 @@
   <body>
     <div class="strip">
       <a data-latest href="#download">
-        <span>Neuron <b id="strip-version">0.4.3</b> is available — Windows, macOS and Linux</span>
+        <!-- No version in the markup. It said 0.4.3 for two releases after
+             0.4.5 shipped, visible to anyone whose GitHub request failed. With
+             the <b> hidden the sentence reads "Neuron is available", because
+             HTML collapses the space either side of an empty element; the
+             script fills and reveals it once it knows the real version. -->
+        <span>Neuron <b id="strip-version" hidden></b> is available — Windows, macOS and Linux</span>
         <span class="strip-arrow" aria-hidden="true">→</span>
       </a>
     </div>
@@ -830,20 +842,28 @@
                download is what most people arriving here want, and a package
                manager is what the people who already have one want. Neither
                should have to scroll past the other. -->
+          <!-- WinGet first: it ships with Windows 10 and 11, so it is the one
+               package manager a Windows visitor is certain to already have.
+               Chocolatey is for people who chose it; Homebrew is the macOS
+               answer. -->
           <div class="pm">
             <div>
-              <h3>Homebrew <span>macOS</span></h3>
-              <pre>brew install --cask neuron-workspace/neuron/neuron</pre>
+              <h3>WinGet <span>Windows</span></h3>
+              <pre>winget install NeuronWorkspace.Neuron</pre>
             </div>
             <div>
               <h3>Chocolatey <span>Windows</span></h3>
               <pre>choco install neuron</pre>
             </div>
+            <div>
+              <h3>Homebrew <span>macOS</span></h3>
+              <pre>brew install --cask neuron-workspace/neuron/neuron</pre>
+            </div>
           </div>
           <p class="pm-note">
-            Both install the same release the buttons above link to, verified against
-            the checksums published with it, and both keep Neuron current with
-            <code>brew upgrade</code> or <code>choco upgrade</code>.
+            Each installs the same release the buttons above link to, verified against
+            the checksums published with it, and keeps Neuron current with
+            <code>winget upgrade</code>, <code>choco upgrade</code> or <code>brew upgrade</code>.
           </p>
         </div>
       </section>
@@ -867,7 +887,7 @@
             </p>
           </div>
           <pre><span class="c"># Provenance: proves which workflow built it</span>
-gh attestation verify Neuron-0.4.3-win-x64.exe \
+gh attestation verify Neuron-<span id="verify-version">&lt;version&gt;</span>-win-x64.exe \
   --repo neuron-workspace/Neuron
 
 <span class="c"># Checksums: proves the bytes are unchanged</span>
@@ -971,7 +991,17 @@ sha256sum -c SHA256SUMS.txt --ignore-missing</pre>
             : '';
           const downloads = (release.assets || []).reduce((sum, a) => sum + (a.download_count || 0), 0);
 
-          if (version) document.getElementById('strip-version').textContent = version.replace(/^v/, '');
+          // One version, every place that names it. The verify command in
+          // particular must match: it is the instruction for checking that the
+          // download is genuine, and it named a file (0.4.3) that nobody
+          // downloading 0.4.5 had.
+          if (version) {
+            const bare = version.replace(/^v/, '');
+            const strip = document.getElementById('strip-version');
+            if (strip) { strip.textContent = bare; strip.hidden = false; }
+            const verify = document.getElementById('verify-version');
+            if (verify) verify.textContent = bare;
+          }
           document.getElementById('dl-meta').innerHTML =
             `<span class="chip">${esc(version)}</span>` +
             (release.prerelease ? '<span class="chip">beta</span>' : '') +
